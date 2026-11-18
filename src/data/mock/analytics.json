@@ -1,0 +1,15 @@
+{
+  "weeklyTrendPercent": 12,
+  "currentStreakDays": 6,
+  "longestStreakDays": 14,
+  "dailyFocusHistory": [
+    { "dayLabel": "M", "dateKey": "2026-11-16", "minutes": 52 },
+    { "dayLabel": "T", "dateKey": "2026-11-17", "minutes": 78 },
+    { "dayLabel": "W", "dateKey": "2026-11-18", "minutes": 135 },
+    { "dayLabel": "T", "dateKey": "2026-11-19", "minutes": 45 },
+    { "dayLabel": "F", "dateKey": "2026-11-20", "minutes": 0 },
+    { "dayLabel": "S", "dateKey": "2026-11-21", "minutes": 0 },
+    { "dayLabel": "S", "dateKey": "2026-11-22", "minutes": 0 }
+  ],
+  "strongestDayInsight": "Your deepest focus blocks happen mid-week. Protecting a morning 45-minute session keeps high-priority deadlines comfortably ahead of schedule."
+}
