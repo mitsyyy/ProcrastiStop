@@ -1,0 +1,37 @@
+{
+  "enabled": true,
+  "blockDuringFocus": true,
+  "selectedApps": [
+    {
+      "packageName": "com.instagram.android",
+      "displayName": "Instagram",
+      "selected": true
+    },
+    {
+      "packageName": "com.facebook.katana",
+      "displayName": "Facebook",
+      "selected": true
+    },
+    {
+      "packageName": "com.zhiliaoapp.musically",
+      "displayName": "TikTok",
+      "selected": true
+    },
+    {
+      "packageName": "com.google.android.youtube",
+      "displayName": "YouTube",
+      "selected": false
+    },
+    {
+      "packageName": "com.twitter.android",
+      "displayName": "X (Twitter)",
+      "selected": false
+    },
+    {
+      "packageName": "com.discord",
+      "displayName": "Discord",
+      "selected": false
+    }
+  ],
+  "allowEmergencyExit": true
+}

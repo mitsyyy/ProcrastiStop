@@ -1,0 +1,9 @@
+{
+  "focusDefaultMinutes": 45,
+  "shortBreakMinutes": 5,
+  "longBreakMinutes": 15,
+  "checkpointEnabled": true,
+  "notificationsEnabled": true,
+  "remindBeforeSessionMinutes": 5,
+  "theme": "dark"
+}
