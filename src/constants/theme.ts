@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 
@@ -145,3 +147,172 @@ export function getThemePalette(
     preference === 'system' ? (systemScheme === 'light' ? 'light' : 'dark') : preference;
   return resolved === 'light' ? LightPalette : DarkPalette;
 }
+
+export const FontFamilies = {
+  regular: 'Manrope_400Regular',
+  medium: 'Manrope_500Medium',
+  semiBold: 'Manrope_600SemiBold',
+  bold: 'Manrope_700Bold',
+  extraBold: 'Manrope_800ExtraBold',
+  fallback: Platform.select({
+    android: 'sans-serif',
+    ios: 'System',
+    default: 'System',
+  }),
+} as const;
+
+export const Typography = {
+  heroTimer: {
+    fontFamily: FontFamilies.bold,
+    fontSize: 48,
+    lineHeight: 56,
+    letterSpacing: -2,
+  },
+  homeTimer: {
+    fontFamily: FontFamilies.bold,
+    fontSize: 42,
+    lineHeight: 48,
+    letterSpacing: -1.8,
+  },
+  completionNumber: {
+    fontFamily: FontFamilies.extraBold,
+    fontSize: 54,
+    lineHeight: 58,
+    letterSpacing: -2.5,
+  },
+  h1: {
+    fontFamily: FontFamilies.bold,
+    fontSize: 27,
+    lineHeight: 33,
+    letterSpacing: -0.7,
+  },
+  h2: {
+    fontFamily: FontFamilies.bold,
+    fontSize: 20,
+    lineHeight: 26,
+    letterSpacing: -0.4,
+  },
+  h3: {
+    fontFamily: FontFamilies.bold,
+    fontSize: 16,
+    lineHeight: 22,
+    letterSpacing: -0.2,
+  },
+  body: {
+    fontFamily: FontFamilies.regular,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  bodyMedium: {
+    fontFamily: FontFamilies.medium,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  bodySemiBold: {
+    fontFamily: FontFamilies.semiBold,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  label: {
+    fontFamily: FontFamilies.bold,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  caption: {
+    fontFamily: FontFamilies.medium,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  small: {
+    fontFamily: FontFamilies.medium,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  eyebrow: {
+    fontFamily: FontFamilies.bold,
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase' as const,
+  },
+} as const;
+
+export const Spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  xxxl: 32,
+} as const;
+
+export const Radii = {
+  xs: 8,
+  sm: 10,
+  md: 13,
+  lg: 18,
+  xl: 22,
+  xxl: 26,
+  full: 999,
+} as const;
+
+export const Shadows = {
+  card: Platform.select({
+    ios: {
+      shadowColor: '#04120c',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.16,
+      shadowRadius: 24,
+    },
+    android: {
+      elevation: 4,
+    },
+    default: {
+      shadowColor: '#04120c',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.16,
+      shadowRadius: 24,
+    },
+  }),
+  energyButton: Platform.select({
+    ios: {
+      shadowColor: '#ff6f10',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.32,
+      shadowRadius: 18,
+    },
+    android: {
+      elevation: 6,
+    },
+    default: {
+      shadowColor: '#ff6f10',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.32,
+      shadowRadius: 18,
+    },
+  }),
+  floatingNav: Platform.select({
+    ios: {
+      shadowColor: '#04100b',
+      shadowOffset: { width: 0, height: 14 },
+      shadowOpacity: 0.25,
+      shadowRadius: 28,
+    },
+    android: {
+      elevation: 10,
+    },
+    default: {
+      shadowColor: '#04100b',
+      shadowOffset: { width: 0, height: 14 },
+      shadowOpacity: 0.25,
+      shadowRadius: 28,
+    },
+  }),
+};
+
+export const Layout = {
+  maxContentWidth: 520,
+  floatingNavHeight: 68,
+  floatingNavBottomOffset: 14,
+} as const;
