@@ -1,0 +1,72 @@
+[
+  {
+    "id": "session_001",
+    "taskId": "task_001",
+    "taskTitleSnapshot": "Finalize quarterly project proposal",
+    "plannedDurationMinutes": 45,
+    "actualFocusSeconds": 2700,
+    "startedAt": "2026-11-18T19:00:00+08:00",
+    "endedAt": "2026-11-18T19:45:00+08:00",
+    "status": "completed",
+    "pauseCount": 0,
+    "interruptionCount": 1,
+    "checkpointCount": 1,
+    "completedCheckpointCount": 1
+  },
+  {
+    "id": "session_002",
+    "taskId": "task_006",
+    "taskTitleSnapshot": "Draft weekly sprint retrospective notes",
+    "plannedDurationMinutes": 45,
+    "actualFocusSeconds": 2700,
+    "startedAt": "2026-11-18T15:25:00+08:00",
+    "endedAt": "2026-11-18T16:12:00+08:00",
+    "status": "completed",
+    "pauseCount": 1,
+    "interruptionCount": 0,
+    "checkpointCount": 1,
+    "completedCheckpointCount": 1
+  },
+  {
+    "id": "session_003",
+    "taskId": "task_007",
+    "taskTitleSnapshot": "Review Android blocker research brief",
+    "plannedDurationMinutes": 45,
+    "actualFocusSeconds": 2700,
+    "startedAt": "2026-11-18T10:30:00+08:00",
+    "endedAt": "2026-11-18T11:15:00+08:00",
+    "status": "completed",
+    "pauseCount": 0,
+    "interruptionCount": 2,
+    "checkpointCount": 1,
+    "completedCheckpointCount": 1
+  },
+  {
+    "id": "session_004",
+    "taskId": "task_003",
+    "taskTitleSnapshot": "Prepare system architecture review",
+    "plannedDurationMinutes": 25,
+    "actualFocusSeconds": 1500,
+    "startedAt": "2026-11-17T20:10:00+08:00",
+    "endedAt": "2026-11-17T20:35:00+08:00",
+    "status": "completed",
+    "pauseCount": 0,
+    "interruptionCount": 0,
+    "checkpointCount": 0,
+    "completedCheckpointCount": 0
+  },
+  {
+    "id": "session_005",
+    "taskId": "task_004",
+    "taskTitleSnapshot": "Read distributed systems chapter 6",
+    "plannedDurationMinutes": 60,
+    "actualFocusSeconds": 1320,
+    "startedAt": "2026-11-16T18:00:00+08:00",
+    "endedAt": "2026-11-16T18:24:00+08:00",
+    "status": "cancelled",
+    "pauseCount": 2,
+    "interruptionCount": 1,
+    "checkpointCount": 1,
+    "completedCheckpointCount": 0
+  }
+]
