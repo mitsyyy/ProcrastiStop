@@ -1,65 +1,147 @@
+export type ThemeMode = 'light' | 'dark' | 'system';
+export type ResolvedTheme = 'light' | 'dark';
+
+export interface ThemePalette {
+  mode: ResolvedTheme;
+  backgroundGradient: readonly [string, string, string];
+  surfaceGradient: readonly [string, string, string];
+  activeFocusGradient: readonly [string, string, string];
+  checkpointBackground: string;
+  backgroundSolid: string;
+  surfaceGlass: string;
+  surfaceGlassStrong: string;
+  surfaceCardGradient: readonly [string, string];
+  surfaceElevated: string;
+  surfaceMuted: string;
+  navBarBg: string;
+  navBarBorder: string;
+  stickyBarBg: string;
+  border: string;
+  borderSubtle: string;
+  text: string;
+  textSecondary: string;
+  textMuted: string;
+  placeholder: string;
+  primary: string;
+  primaryDark: string;
+  primaryGradient: readonly [string, string];
+  primaryText: string;
+  accentMint: string;
+  accentMintSoft: string;
+  energyOrange: string;
+  energyYellow: string;
+  energyGradient: readonly [string, string];
+  sageTint: string;
+  sageText: string;
+  danger: string;
+  dangerSoft: string;
+  dangerText: string;
+  warning: string;
+  warningSoft: string;
+  warningText: string;
+  success: string;
+  successSoft: string;
+  successText: string;
+  overlayBackdrop: string;
+}
+
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://unistyl.es/), etc.
+ * Extracted from Figma reference (figmaprocrastistop/src/index.css)
+ * Unified Immersive Theme (default dark emerald glass) & Base Forest Paper Light Theme.
  */
+export const DarkPalette: ThemePalette = {
+  mode: 'dark',
+  backgroundGradient: ['#071b18', '#0a3127', '#0d6242'],
+  surfaceGradient: ['#0a1b19', '#10251f', '#0d3a2b'],
+  activeFocusGradient: ['#071b18', '#0b3d2d', '#0b6241'],
+  checkpointBackground: '#18201c',
+  backgroundSolid: '#091f1a',
+  surfaceGlass: 'rgba(255, 255, 255, 0.08)',
+  surfaceGlassStrong: 'rgba(255, 255, 255, 0.14)',
+  surfaceCardGradient: ['rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.05)'],
+  surfaceElevated: '#102922',
+  surfaceMuted: 'rgba(255, 255, 255, 0.06)',
+  navBarBg: 'rgba(25, 46, 38, 0.94)',
+  navBarBorder: 'rgba(255, 255, 255, 0.22)',
+  stickyBarBg: 'rgba(9, 29, 23, 0.94)',
+  border: 'rgba(255, 255, 255, 0.12)',
+  borderSubtle: 'rgba(255, 255, 255, 0.08)',
+  text: '#f7faf7',
+  textSecondary: 'rgba(255, 255, 255, 0.74)',
+  textMuted: 'rgba(255, 255, 255, 0.52)',
+  placeholder: 'rgba(255, 255, 255, 0.34)',
+  primary: '#2eac73',
+  primaryDark: '#207954',
+  primaryGradient: ['#2eac73', '#207954'],
+  primaryText: '#ffffff',
+  accentMint: '#55dda0',
+  accentMintSoft: 'rgba(85, 221, 160, 0.14)',
+  energyOrange: '#ff7a1a',
+  energyYellow: '#ffc83d',
+  energyGradient: ['#ffc83d', '#ff7a1a'],
+  sageTint: 'rgba(74, 201, 132, 0.14)',
+  sageText: '#8be1b3',
+  danger: '#c95050',
+  dangerSoft: 'rgba(224, 77, 61, 0.18)',
+  dangerText: '#ff9d8d',
+  warning: '#c78932',
+  warningSoft: 'rgba(255, 180, 60, 0.16)',
+  warningText: '#ffc65b',
+  success: '#438766',
+  successSoft: 'rgba(83, 197, 134, 0.16)',
+  successText: '#7de0aa',
+  overlayBackdrop: 'rgba(7, 16, 12, 0.78)',
+};
 
-import '@/global.css';
+export const LightPalette: ThemePalette = {
+  mode: 'light',
+  backgroundGradient: ['#f7f8f5', '#f3f6f1', '#edf3ed'],
+  surfaceGradient: ['#f7f8f5', '#f5f7f3', '#edf3ed'],
+  activeFocusGradient: ['#071b18', '#0b3d2d', '#0b6241'],
+  checkpointBackground: '#18201c',
+  backgroundSolid: '#f7f8f5',
+  surfaceGlass: '#ffffff',
+  surfaceGlassStrong: '#dce8dd',
+  surfaceCardGradient: ['#ffffff', '#f9fbf8'],
+  surfaceElevated: '#ffffff',
+  surfaceMuted: '#ecefea',
+  navBarBg: 'rgba(255, 255, 255, 0.96)',
+  navBarBorder: '#e2e7e1',
+  stickyBarBg: 'rgba(247, 248, 245, 0.96)',
+  border: '#e2e7e1',
+  borderSubtle: '#ecefea',
+  text: '#202522',
+  textSecondary: '#46504a',
+  textMuted: '#747c76',
+  placeholder: '#9ca39d',
+  primary: '#315b46',
+  primaryDark: '#244536',
+  primaryGradient: ['#315b46', '#244536'],
+  primaryText: '#ffffff',
+  accentMint: '#315b46',
+  accentMintSoft: '#dce8dd',
+  energyOrange: '#ff7a1a',
+  energyYellow: '#ffc83d',
+  energyGradient: ['#ffc83d', '#ff7a1a'],
+  sageTint: '#edf3ed',
+  sageText: '#315b46',
+  danger: '#c95050',
+  dangerSoft: '#f9e7e5',
+  dangerText: '#a13f3f',
+  warning: '#c78932',
+  warningSoft: '#f8efdf',
+  warningText: '#77511d',
+  success: '#438766',
+  successSoft: '#edf3ed',
+  successText: '#2c684b',
+  overlayBackdrop: 'rgba(15, 24, 19, 0.62)',
+};
 
-import { Platform } from 'react-native';
-
-export const Colors = {
-  light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
-  },
-  dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
-  },
-} as const;
-
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
-
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
-    mono: 'var(--font-mono)',
-  },
-});
-
-export const Spacing = {
-  half: 2,
-  one: 4,
-  two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
-} as const;
-
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+export function getThemePalette(
+  preference: ThemeMode,
+  systemScheme: 'light' | 'dark' | null | undefined,
+): ThemePalette {
+  const resolved: ResolvedTheme =
+    preference === 'system' ? (systemScheme === 'light' ? 'light' : 'dark') : preference;
+  return resolved === 'light' ? LightPalette : DarkPalette;
+}
