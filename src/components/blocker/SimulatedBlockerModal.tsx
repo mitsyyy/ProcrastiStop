@@ -5,6 +5,7 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { formatCountdown } from '@/utils/date';
 import { AppIcon } from '../ui/AppIcon';
 import { PrimaryButton } from '../ui/PrimaryButton';
+import { SecondaryButton } from '../ui/SecondaryButton';
 
 interface SimulatedBlockerModalProps {
   visible: boolean;
@@ -20,9 +21,12 @@ interface SimulatedBlockerModalProps {
 export function SimulatedBlockerModal({
   visible,
   appName,
+  packageName,
   remainingSeconds,
   taskTitle,
+  allowEmergencyExit,
   onReturnToFocus,
+  onEmergencyExit,
 }: SimulatedBlockerModalProps) {
   const palette = useAppTheme();
 
@@ -40,9 +44,20 @@ export function SimulatedBlockerModal({
             <AppIcon name="shield" size={36} color={palette.accentMint} />
           </View>
 
-          <Text style={[Typography.eyebrow, { color: palette.textMuted }]}>ProcrastiStop is active</Text>
+          <View style={[styles.simPill, { backgroundColor: palette.warningSoft }]}>
+            <Text style={[Typography.small, { color: palette.warningText, fontWeight: '700' }]}>
+              Frontend Simulation Preview
+            </Text>
+          </View>
+
+          <Text style={[Typography.eyebrow, { color: palette.textMuted, marginTop: Spacing.xs }]}>
+            ProcrastiStop is active
+          </Text>
           <Text style={[Typography.h2, styles.headline, { color: palette.text }]}>
             {appName} is paused during your session.
+          </Text>
+          <Text style={[Typography.body, styles.body, { color: palette.textSecondary }]}>
+            Return to your focus block and finish this stretch before opening {appName}.
           </Text>
 
           <View
@@ -65,12 +80,27 @@ export function SimulatedBlockerModal({
             </View>
           </View>
 
-          <PrimaryButton
-            title="Return to Focus"
-            icon="arrow"
-            tone="energy"
-            onPress={onReturnToFocus}
-          />
+          <View style={styles.actions}>
+            <PrimaryButton
+              title="Return to Focus"
+              icon="arrow"
+              tone="energy"
+              onPress={onReturnToFocus}
+            />
+            {allowEmergencyExit && onEmergencyExit ? (
+              <SecondaryButton
+                title="Emergency Exit (End Blocking)"
+                variant="dangerOutline"
+                onPress={onEmergencyExit}
+                fullWidth
+              />
+            ) : null}
+          </View>
+
+          <Text style={[Typography.small, styles.footnote, { color: palette.textMuted }]}>
+            Target package: {packageName}. Real OS-level interception on Android requires the Stage 2
+            native Kotlin Usage Access & Overlay service.
+          </Text>
         </View>
       </View>
     </Modal>
@@ -78,7 +108,12 @@ export function SimulatedBlockerModal({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
+  backdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
   card: {
     width: '100%',
     maxWidth: 400,
@@ -96,7 +131,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Spacing.xs,
   },
-  headline: { textAlign: 'center', fontSize: 22, lineHeight: 28 },
+  simPill: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 4,
+    borderRadius: Radii.full,
+  },
+  headline: {
+    textAlign: 'center',
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  body: {
+    textAlign: 'center',
+  },
   infoBox: {
     width: '100%',
     flexDirection: 'row',
@@ -104,5 +151,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginVertical: Spacing.sm,
   },
-  infoCell: { flex: 1, padding: Spacing.md, alignItems: 'center', gap: 2 },
+  infoCell: {
+    flex: 1,
+    padding: Spacing.md,
+    alignItems: 'center',
+    gap: 2,
+  },
+  actions: {
+    width: '100%',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  footnote: {
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+    lineHeight: 15,
+  },
 });
