@@ -32,6 +32,14 @@ interface FocusState {
   tickDisplay: () => Promise<'completed' | 'ticking' | 'idle'>;
   pauseSession: () => Promise<void>;
   resumeSession: () => Promise<void>;
+  enterCheckpoint: () => Promise<void>;
+  recordCheckpointResult: (input: {
+    detectedObjects: string[];
+    verificationResult: 'passed' | 'failed';
+    confidence: number;
+  }) => Promise<CheckpointRecord | null>;
+  exitCheckpointToActive: () => Promise<void>;
+  recordInterruption: () => Promise<void>;
   completeSession: () => Promise<FocusSession | null>;
   cancelSession: () => Promise<FocusSession | null>;
   clearLastCompleted: () => void;
@@ -77,6 +85,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       if (session.status === 'active' && endTimestampMs !== null) {
         const recalculated = computeRemainingSeconds(endTimestampMs, savedRemaining);
         if (recalculated <= 0) {
+          // Session elapsed while backgrounded/closed — finalize immediately
           const completedSession = await focusRepository.updateSession(session.id, {
             status: 'completed',
             endedAt: new Date(endTimestampMs).toISOString(),
@@ -99,10 +108,14 @@ export const useFocusStore = create<FocusState>((set, get) => ({
         }
 
         const updatedActual = computeActualFocusSeconds(session, recalculated);
+        const hydratedSession: FocusSession = {
+          ...session,
+          actualFocusSeconds: updatedActual,
+        };
         set({
           sessions,
           checkpoints,
-          activeSession: { ...session, actualFocusSeconds: updatedActual },
+          activeSession: hydratedSession,
           endTimestampMs,
           remainingSeconds: recalculated,
           checkpointTriggered,
@@ -112,6 +125,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
         return;
       }
 
+      // Paused or in checkpoint state: keep remainingSeconds untouched
       set({
         sessions,
         checkpoints,
@@ -141,6 +155,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
     const totalSeconds = plannedDurationMinutes * 60;
     const endTimestampMs = nowMs + totalSeconds * 1000;
 
+    // Lifecycle: planned -> active
     const planned = await focusRepository.createSession({
       taskId,
       taskTitleSnapshot: taskTitleSnapshot || 'Open focus session',
@@ -155,7 +170,9 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       completedCheckpointCount: 0,
     });
 
-    const active = await focusRepository.updateSession(planned.id, { status: 'active' });
+    const active = await focusRepository.updateSession(planned.id, {
+      status: 'active',
+    });
 
     await sessionPersistence.save({
       session: active,
@@ -194,7 +211,10 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       const actualFocusSeconds = computeActualFocusSeconds(activeSession, nextRemaining);
       set({
         remainingSeconds: nextRemaining,
-        activeSession: { ...activeSession, actualFocusSeconds },
+        activeSession: {
+          ...activeSession,
+          actualFocusSeconds,
+        },
       });
     }
     return 'ticking';
@@ -234,13 +254,17 @@ export const useFocusStore = create<FocusState>((set, get) => ({
 
   resumeSession: async () => {
     const { activeSession, remainingSeconds, checkpointTriggered } = get();
-    if (!activeSession || activeSession.status !== 'paused') return;
+    if (!activeSession || (activeSession.status !== 'paused' && activeSession.status !== 'checkpoint')) {
+      return;
+    }
 
     const nowMs = Date.now();
     const safeRemaining = Math.max(1, remainingSeconds);
     const endTimestampMs = nowMs + safeRemaining * 1000;
 
-    const updated = await focusRepository.updateSession(activeSession.id, { status: 'active' });
+    const updated = await focusRepository.updateSession(activeSession.id, {
+      status: 'active',
+    });
 
     await sessionPersistence.save({
       session: updated,
@@ -258,6 +282,107 @@ export const useFocusStore = create<FocusState>((set, get) => ({
     }));
 
     await useBlockerStore.getState().syncWithSession('active');
+  },
+
+  enterCheckpoint: async () => {
+    const { activeSession, endTimestampMs, remainingSeconds } = get();
+    if (!activeSession) return;
+
+    const nowMs = Date.now();
+    const preciseRemaining =
+      activeSession.status === 'active'
+        ? computeRemainingSeconds(endTimestampMs, remainingSeconds, nowMs)
+        : remainingSeconds;
+    const actualFocusSeconds = computeActualFocusSeconds(activeSession, preciseRemaining);
+
+    const updated = await focusRepository.updateSession(activeSession.id, {
+      status: 'checkpoint',
+      actualFocusSeconds,
+    });
+
+    await sessionPersistence.save({
+      session: updated,
+      endTimestampMs: null,
+      remainingSeconds: preciseRemaining,
+      lastSavedAtMs: nowMs,
+      checkpointTriggered: true,
+    });
+
+    set((state) => ({
+      activeSession: updated,
+      endTimestampMs: null,
+      remainingSeconds: preciseRemaining,
+      checkpointTriggered: true,
+      sessions: state.sessions.map((s) => (s.id === updated.id ? updated : s)),
+    }));
+
+    await useBlockerStore.getState().syncWithSession('checkpoint');
+  },
+
+  recordCheckpointResult: async ({ detectedObjects, verificationResult, confidence }) => {
+    const { activeSession, remainingSeconds, checkpointTriggered } = get();
+    if (!activeSession) return null;
+
+    const record = await focusRepository.saveCheckpoint({
+      sessionId: activeSession.id,
+      capturedAt: new Date().toISOString(),
+      detectedObjects,
+      verificationResult,
+      confidence,
+      imagePath: null, // Always null by default
+    });
+
+    const updated = await focusRepository.updateSession(activeSession.id, {
+      checkpointCount: activeSession.checkpointCount + 1,
+      completedCheckpointCount:
+        activeSession.completedCheckpointCount + (verificationResult === 'passed' ? 1 : 0),
+    });
+
+    await sessionPersistence.save({
+      session: updated,
+      endTimestampMs: null,
+      remainingSeconds,
+      lastSavedAtMs: Date.now(),
+      checkpointTriggered,
+    });
+
+    set((state) => ({
+      checkpoints: [record, ...state.checkpoints],
+      activeSession: updated,
+      sessions: state.sessions.map((s) => (s.id === updated.id ? updated : s)),
+    }));
+
+    return record;
+  },
+
+  exitCheckpointToActive: async () => {
+    const { activeSession } = get();
+    if (!activeSession) return;
+    if (activeSession.status === 'checkpoint') {
+      await get().resumeSession();
+    }
+  },
+
+  recordInterruption: async () => {
+    const { activeSession, endTimestampMs, remainingSeconds, checkpointTriggered } = get();
+    if (!activeSession) return;
+
+    const updated = await focusRepository.updateSession(activeSession.id, {
+      interruptionCount: activeSession.interruptionCount + 1,
+    });
+
+    await sessionPersistence.save({
+      session: updated,
+      endTimestampMs,
+      remainingSeconds,
+      lastSavedAtMs: Date.now(),
+      checkpointTriggered,
+    });
+
+    set((state) => ({
+      activeSession: updated,
+      sessions: state.sessions.map((s) => (s.id === updated.id ? updated : s)),
+    }));
   },
 
   completeSession: async () => {
