@@ -30,7 +30,7 @@ export function Card({ children, variant = 'default', noPadding = false, style }
           borderColor: palette.border,
           padding: noPadding ? 0 : Spacing.lg,
         },
-        variant === 'elevated' && Shadows.card,
+        variant === 'elevated' && palette.mode === 'light' && Shadows.card,
         style,
       ]}
     >
