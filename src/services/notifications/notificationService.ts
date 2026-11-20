@@ -1,4 +1,13 @@
-import * as Notifications from 'expo-notifications';
+import {
+  AndroidImportance,
+  cancelScheduledNotificationAsync,
+  getPermissionsAsync,
+  requestPermissionsAsync,
+  SchedulableTriggerInputTypes,
+  scheduleNotificationAsync,
+  setNotificationChannelAsync,
+  setNotificationHandler,
+} from 'expo-notifications';
 import { Linking, Platform } from 'react-native';
 
 import type { FocusSession } from '@/types/focus';
@@ -26,7 +35,7 @@ let handlerConfigured = false;
 export function configureNotificationHandler(): void {
   if (Platform.OS === 'web' || handlerConfigured) return;
   handlerConfigured = true;
-  Notifications.setNotificationHandler({
+  setNotificationHandler({
     handleNotification: async () => ({
       shouldPlaySound: true,
       shouldSetBadge: false,
@@ -38,10 +47,10 @@ export function configureNotificationHandler(): void {
 
 export async function ensureAndroidNotificationChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
-  await Notifications.setNotificationChannelAsync(PROCRASTISTOP_NOTIFICATION_CHANNEL_ID, {
+  await setNotificationChannelAsync(PROCRASTISTOP_NOTIFICATION_CHANNEL_ID, {
     name: 'Focus & Deadline Reminders',
     description: 'Focus session completions and upcoming task deadline alerts.',
-    importance: Notifications.AndroidImportance.HIGH,
+    importance: AndroidImportance.HIGH,
     vibrationPattern: [0, 220, 160, 220],
     lightColor: '#2eac73',
   });
@@ -51,7 +60,7 @@ export async function getNotificationPermissionState(): Promise<NotificationPerm
   if (Platform.OS === 'web') {
     return { status: 'unavailable', canAskAgain: false };
   }
-  const perms = await Notifications.getPermissionsAsync();
+  const perms = await getPermissionsAsync();
   const status =
     perms.status === 'granted'
       ? 'granted'
@@ -66,11 +75,11 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
     return { status: 'unavailable', canAskAgain: false };
   }
   await ensureAndroidNotificationChannel();
-  const existing = await Notifications.getPermissionsAsync();
+  const existing = await getPermissionsAsync();
   if (existing.status === 'granted') {
     return { status: 'granted', canAskAgain: true };
   }
-  const requested = await Notifications.requestPermissionsAsync();
+  const requested = await requestPermissionsAsync();
   const status =
     requested.status === 'granted'
       ? 'granted'
@@ -108,7 +117,7 @@ export async function sendTestLocalNotification(
     };
   }
 
-  const id = await Notifications.scheduleNotificationAsync({
+  const id = await scheduleNotificationAsync({
     content: {
       title: 'ProcrastiStop reminder active',
       body: 'Local Android notifications are working on your device.',
@@ -116,7 +125,7 @@ export async function sendTestLocalNotification(
       data: { route: '/(tabs)/focus' },
     },
     trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      type: SchedulableTriggerInputTypes.TIME_INTERVAL,
       seconds: Math.max(1, Math.round(delaySeconds)),
       channelId: Platform.OS === 'android' ? PROCRASTISTOP_NOTIFICATION_CHANNEL_ID : undefined,
     },
@@ -155,7 +164,7 @@ export async function scheduleReminderNotification(params: {
     };
   }
 
-  const id = await Notifications.scheduleNotificationAsync({
+  const id = await scheduleNotificationAsync({
     content: {
       title: params.title,
       body: params.body,
@@ -163,7 +172,7 @@ export async function scheduleReminderNotification(params: {
       data: params.route ? { route: params.route } : {},
     },
     trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      type: SchedulableTriggerInputTypes.TIME_INTERVAL,
       seconds: Math.max(1, Math.round(params.delaySeconds ?? 5)),
       channelId: Platform.OS === 'android' ? PROCRASTISTOP_NOTIFICATION_CHANNEL_ID : undefined,
     },
@@ -188,7 +197,7 @@ export async function scheduleFocusCompletionNotification(
   if (perm.status !== 'granted') return null;
 
   await ensureAndroidNotificationChannel();
-  return Notifications.scheduleNotificationAsync({
+  return scheduleNotificationAsync({
     content: {
       title: 'Focus session complete',
       body: `Great work protecting time for "${taskTitle}". Tap to review your summary.`,
@@ -196,7 +205,7 @@ export async function scheduleFocusCompletionNotification(
       data: { route: '/focus/completed' },
     },
     trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      type: SchedulableTriggerInputTypes.DATE,
       date: new Date(endTimestampMs),
       channelId: Platform.OS === 'android' ? PROCRASTISTOP_NOTIFICATION_CHANNEL_ID : undefined,
     },
@@ -206,7 +215,7 @@ export async function scheduleFocusCompletionNotification(
 export async function cancelScheduledNotification(id: string | null): Promise<void> {
   if (!id || Platform.OS === 'web') return;
   try {
-    await Notifications.cancelScheduledNotificationAsync(id);
+    await cancelScheduledNotificationAsync(id);
   } catch {
     // Notification may already have fired or been cleared
   }
