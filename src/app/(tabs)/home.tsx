@@ -15,7 +15,7 @@ import { ScreenBackground } from '@/components/ui/ScreenBackground';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Layout, Radii, Shadows, Spacing, Typography } from '@/constants/theme';
 import { useAnalytics } from '@/features/analytics/useAnalytics';
-import { getSessionProgressRatio } from '@/features/focus/focusUtils';
+import { getSessionRemainingRatio } from '@/features/focus/focusUtils';
 import { useReminders } from '@/features/notifications/useReminders';
 import { sortTasks } from '@/features/tasks/taskUtils';
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -87,8 +87,8 @@ export default function HomeScreen() {
     hasActiveOrPaused && activeSession ? remainingSeconds : heroPlannedMinutes * 60;
 
   const heroProgress = hasActiveOrPaused
-    ? getSessionProgressRatio(heroPlannedMinutes, heroRemainingSeconds)
-    : 0.65;
+    ? getSessionRemainingRatio(heroPlannedMinutes, heroRemainingSeconds)
+    : 1;
 
   const firstName = user?.fullName.split(' ')[0] ?? 'there';
   const maxDailyMins = Math.max(
@@ -179,23 +179,25 @@ export default function HomeScreen() {
           </View>
 
           {/* Active Session Banner OR Hero Focus Command Card */}
-          <LinearGradient
-            colors={
-              palette.mode === 'dark'
-                ? ['rgba(255,255,255,0.13)', 'rgba(255,255,255,0.05)']
-                : ['#264c3b', '#1b392b']
-            }
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+          <View
             style={[
-              styles.heroCard,
-              Shadows.card,
+              styles.heroCardShell,
               {
                 borderColor:
                   hasActiveOrPaused ? palette.energyOrange : 'rgba(255,255,255,0.16)',
               },
             ]}
           >
+            <LinearGradient
+              colors={
+                palette.mode === 'dark'
+                  ? ['#113d2e', '#0d3126']
+                  : ['#264c3b', '#1b392b']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroCard}
+            >
             <View style={styles.heroTop}>
               <View style={styles.heroTopLeft}>
                 <View style={styles.statusPill}>
@@ -301,7 +303,8 @@ export default function HomeScreen() {
                 <AppIcon name={primaryTask ? 'chevron' : 'plus'} size={20} color="#153c30" />
               </Pressable>
             </View>
-          </LinearGradient>
+            </LinearGradient>
+          </View>
 
           {/* Priority & Upcoming Deadlines */}
           <View style={styles.section}>
@@ -586,11 +589,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     gap: 2,
   },
-  heroCard: {
+  heroCardShell: {
     borderRadius: Radii.xl,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  heroCard: {
+    borderRadius: Radii.xl - 1,
     padding: Spacing.xl,
     gap: Spacing.md,
+    overflow: 'hidden',
   },
   heroTop: {
     flexDirection: 'row',
