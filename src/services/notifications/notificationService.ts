@@ -603,11 +603,12 @@ export function buildReminderPreviews(
         task.dailyReminderCount ?? preferences.defaultDailyReminderCount,
       );
       const nudges = computeDailyNudgeDates(nextSession, total);
-      nudges.forEach((d, idx) => {
+      for (let idx = 0; idx < nudges.length; idx++) {
+        const d = nudges[idx];
         if (d.getTime() > nowMs && (!nextNudge || d.getTime() < nextNudge.nudgeDate.getTime())) {
           nextNudge = { nudgeDate: d, task, index: idx + 1, total };
         }
-      });
+      }
     }
 
     if (nextPre) {

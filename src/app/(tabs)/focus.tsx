@@ -23,16 +23,21 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { useFocusTicker } from '@/hooks/useFocusTicker';
 import {
   getNotificationPermissionState,
+  getScheduledNotificationsCount,
   type NotificationPermissionState,
+  type NotificationSyncSummary,
   openAppSystemSettings,
   requestNotificationPermission,
   scheduleReminderNotification,
   sendTestLocalNotification,
+  sendTestPreSessionWarning,
+  syncScheduledPreSessionAndNudgeNotifications,
 } from '@/services/notifications/notificationService';
 import { useBlockerStore } from '@/store/blockerStore';
 import { useFocusStore } from '@/store/focusStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { formatCountdown, formatMinutesAsDuration } from '@/utils/date';
+import { useTaskStore } from '@/store/taskStore';
+import { formatCountdown, formatFullDateTime, formatMinutesAsDuration } from '@/utils/date';
 
 export default function FocusHubScreen() {
   const palette = useAppTheme();
@@ -41,25 +46,38 @@ export default function FocusHubScreen() {
     status: 'undetermined',
     canAskAgain: true,
   });
+  const [scheduledCount, setScheduledCount] = useState(0);
+  const [syncSummary, setSyncSummary] = useState<NotificationSyncSummary | null>(null);
+
+  const tasks = useTaskStore((s) => s.tasks);
+  const activeSession = useFocusStore((s) => s.activeSession);
+  const remainingSeconds = useFocusStore((s) => s.remainingSeconds);
+  const preferences = useSettingsStore((s) => s.preferences);
+  const showToast = useSettingsStore((s) => s.showToast);
 
   useEffect(() => {
     let active = true;
-    const loadPerm = async () => {
-      const next = await getNotificationPermissionState();
-      if (active) setNotifPerm(next);
+    const refreshNotificationState = async () => {
+      const [perm, summary] = await Promise.all([
+        getNotificationPermissionState(),
+        syncScheduledPreSessionAndNudgeNotifications(tasks, preferences, activeSession),
+      ]);
+      const count = await getScheduledNotificationsCount();
+      if (active) {
+        setNotifPerm(perm);
+        setSyncSummary(summary);
+        setScheduledCount(count);
+      }
     };
-    void loadPerm();
+    void refreshNotificationState();
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void loadPerm();
+      if (state === 'active') void refreshNotificationState();
     });
     return () => {
       active = false;
       sub.remove();
     };
-  }, []);
-
-  const activeSession = useFocusStore((s) => s.activeSession);
-  const remainingSeconds = useFocusStore((s) => s.remainingSeconds);
+  }, [tasks, preferences, activeSession]);
 
   useFocusTicker(() => {
     router.push('/focus/completed');
@@ -78,11 +96,10 @@ export default function FocusHubScreen() {
   const triggerSimulatedBlockedApp = useBlockerStore((s) => s.triggerSimulatedBlockedApp);
   const dismissBlockedAppModal = useBlockerStore((s) => s.dismissBlockedAppModal);
 
-  const preferences = useSettingsStore((s) => s.preferences);
-  const showToast = useSettingsStore((s) => s.showToast);
-
   const { summary } = useAnalytics();
   const reminders = useReminders();
+
+  const nextTaskTitle = syncSummary?.nextTaskTitle ?? 'Scheduled Focus Block';
 
   const selectedCount = blockerSettings.selectedApps.filter((a) => a.selected).length;
   const hasLiveSession =
@@ -322,10 +339,10 @@ export default function FocusHubScreen() {
                   </Text>
                   <Text style={[Typography.small, { color: palette.textMuted }]}>
                     {notifPerm.status === 'granted'
-                      ? 'Ready to deliver focus completion and test alerts.'
+                      ? `${scheduledCount} OS alert${scheduledCount === 1 ? '' : 's'} queued (high-priority channel active).`
                       : notifPerm.status === 'denied' && !notifPerm.canAskAgain
                         ? 'Disabled in Android Settings. Open Settings to re-enable.'
-                        : 'Allow local notifications to receive focus alerts.'}
+                        : 'Allow local notifications to receive 5-min warnings and daily nudges.'}
                   </Text>
                 </View>
                 <View
@@ -366,6 +383,27 @@ export default function FocusHubScreen() {
                 </View>
               </View>
 
+              {syncSummary?.nextPreSessionAt ? (
+                <View
+                  style={[
+                    styles.preSessionBox,
+                    { backgroundColor: palette.sageTint, borderColor: palette.border },
+                  ]}
+                >
+                  <AppIcon name="bell" size={16} color={palette.accentMint} />
+                  <View style={styles.switchCopy}>
+                    <Text style={[Typography.caption, { color: palette.accentMint, fontWeight: '700' }]}>
+                      Next {preferences.remindBeforeSessionMinutes}-min warning:{' '}
+                      {formatFullDateTime(syncSummary.nextPreSessionAt)}
+                    </Text>
+                    <Text style={[Typography.small, { color: palette.textMuted }]}>
+                      For &ldquo;{nextTaskTitle}&rdquo; · {syncSummary.preSessionCount} pre-session &{' '}
+                      {syncSummary.nudgeCount} daily nudges queued
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+
               <View style={styles.notifActionsRow}>
                 {notifPerm.status !== 'granted' ? (
                   <PrimaryButton
@@ -382,19 +420,55 @@ export default function FocusHubScreen() {
                       if (notifPerm.status === 'denied' && !notifPerm.canAskAgain) {
                         void openAppSystemSettings();
                       } else {
-                        void requestNotificationPermission().then((next) => {
+                        void requestNotificationPermission().then(async (next) => {
                           setNotifPerm(next);
-                          showToast(
-                            next.status === 'granted'
-                              ? 'Device notifications enabled.'
-                              : 'Notification permission not granted.',
-                            next.status === 'granted' ? 'success' : 'warning',
-                          );
+                          if (next.status === 'granted') {
+                            const synced = await syncScheduledPreSessionAndNudgeNotifications(
+                              tasks,
+                              preferences,
+                              activeSession,
+                            );
+                            const count = await getScheduledNotificationsCount();
+                            setSyncSummary(synced);
+                            setScheduledCount(count);
+                            showToast(
+                              `Notifications enabled — ${synced.scheduledCount} alerts scheduled.`,
+                              'success',
+                            );
+                          } else {
+                            showToast('Notification permission not granted.', 'warning');
+                          }
                         });
                       }
                     }}
                   />
-                ) : null}
+                ) : (
+                  <PrimaryButton
+                    title={`Test ${preferences.remindBeforeSessionMinutes}m Warning (3s)`}
+                    icon="bell"
+                    tone="emerald"
+                    fullWidth={false}
+                    style={styles.flexOne}
+                    onPress={() => {
+                      void sendTestPreSessionWarning(
+                        nextTaskTitle,
+                        preferences.remindBeforeSessionMinutes,
+                        3,
+                      ).then((res) => {
+                        setNotifPerm({
+                          status: res.permissionStatus,
+                          canAskAgain: res.canAskAgain,
+                        });
+                        showToast(
+                          res.scheduled
+                            ? `${preferences.remindBeforeSessionMinutes}-min warning preview arriving in 3 seconds.`
+                            : res.reason ?? 'Unable to schedule notification.',
+                          res.scheduled ? 'success' : 'warning',
+                        );
+                      });
+                    }}
+                  />
+                )}
 
                 <SecondaryButton
                   title="Send Test Alert (3s)"
@@ -467,7 +541,7 @@ export default function FocusHubScreen() {
                         ]}
                       >
                         <AppIcon
-                          name={rem.kind === 'session' ? 'bell' : 'clock'}
+                          name={rem.kind === 'session' || rem.kind === 'nudge' ? 'bell' : 'clock'}
                           size={16}
                           color={
                             rem.kind === 'overdue'
@@ -645,6 +719,14 @@ const styles = StyleSheet.create({
   notifActionsRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
+  },
+  preSessionBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: Radii.md,
+    borderWidth: 1,
   },
   reminderCard: {
     marginTop: 0,
