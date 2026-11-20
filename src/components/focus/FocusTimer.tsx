@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Typography } from '@/constants/theme';
-import { getSessionProgressRatio } from '@/features/focus/focusUtils';
+import { getSessionRemainingRatio } from '@/features/focus/focusUtils';
 import type { SessionStatus } from '@/types/focus';
 import { formatCountdown } from '@/utils/date';
 import { TimerRing } from './TimerRing';
@@ -19,7 +19,7 @@ export function FocusTimer({
   status,
   size = 248,
 }: FocusTimerProps) {
-  const progress = getSessionProgressRatio(plannedDurationMinutes, remainingSeconds);
+  const remainingRatio = getSessionRemainingRatio(plannedDurationMinutes, remainingSeconds);
   const statusLabel =
     status === 'paused'
       ? 'Paused'
@@ -28,7 +28,7 @@ export function FocusTimer({
         : 'Time remaining';
 
   return (
-    <TimerRing progress={progress} size={size}>
+    <TimerRing progress={remainingRatio} size={size}>
       <View style={styles.inner}>
         <Text style={[Typography.small, styles.statusText]}>{statusLabel}</Text>
         <Text style={[Typography.heroTimer, styles.timeText]}>

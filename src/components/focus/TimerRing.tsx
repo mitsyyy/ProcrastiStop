@@ -1,11 +1,19 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import Animated, {
+  Easing,
+  useAnimatedProps,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import Svg, { Circle, Defs, Stop, LinearGradient as SvgGradient } from 'react-native-svg';
 
 import { useAppTheme } from '@/hooks/useAppTheme';
 
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
 interface TimerRingProps {
-  progress: number; // 0 to 1
+  progress: number;
   size?: number;
   strokeWidth?: number;
   children?: ReactNode;
@@ -21,8 +29,25 @@ export function TimerRing({
   const clamped = Math.min(1, Math.max(0, progress));
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference * (1 - clamped);
   const center = size / 2;
+
+  const animatedRemaining = useSharedValue(clamped);
+
+  useEffect(() => {
+    animatedRemaining.value = withTiming(clamped, {
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [clamped, animatedRemaining]);
+
+  const animatedCircleProps = useAnimatedProps(() => {
+    const remaining = Math.min(1, Math.max(0, animatedRemaining.value));
+    const elapsed = 1 - remaining;
+    return {
+      strokeDashoffset: -circumference * elapsed,
+      strokeOpacity: remaining <= 0.002 ? 0 : 1,
+    };
+  });
 
   return (
     <View style={[styles.container, { width: size, height: size }]}>
@@ -42,7 +67,7 @@ export function TimerRing({
           strokeWidth={strokeWidth}
           fill="rgba(16, 63, 49, 0.68)"
         />
-        <Circle
+        <AnimatedCircle
           cx={center}
           cy={center}
           r={radius}
@@ -50,9 +75,9 @@ export function TimerRing({
           strokeWidth={strokeWidth}
           fill="none"
           strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
+          strokeLinecap={clamped >= 0.998 ? 'butt' : 'round'}
           transform={`rotate(-90 ${center} ${center})`}
+          animatedProps={animatedCircleProps}
         />
       </Svg>
 

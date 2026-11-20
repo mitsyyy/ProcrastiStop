@@ -21,3 +21,11 @@ export function getSessionProgressRatio(
   const elapsed = Math.max(0, totalSeconds - remainingSeconds);
   return Math.min(1, Math.max(0, elapsed / totalSeconds));
 }
+
+export function getSessionRemainingRatio(
+  plannedDurationMinutes: number,
+  remainingSeconds: number,
+): number {
+  const totalSeconds = Math.max(1, plannedDurationMinutes * 60);
+  return Math.min(1, Math.max(0, remainingSeconds / totalSeconds));
+}
