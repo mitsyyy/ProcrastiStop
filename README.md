@@ -33,6 +33,17 @@ npx tsc --noEmit      # Run strict TypeScript check
 npx expo-doctor       # Verify Expo SDK & dependency health
 ```
 
+## Building a Standalone Android APK (Mock Data Ready)
+
+You can install ProcrastiStop as its own standalone Android application without Expo Go or a backend using EAS Build (`eas.json` `preview` profile):
+
+```bash
+npx eas-cli@latest login
+npx eas-cli@latest build --platform android --profile preview
+```
+
+Once the cloud build finishes, scan the QR code or download the `.apk` link directly onto your Android device to test real local notifications (`expo-notifications`) and camera checkpoints (`expo-camera`).
+
 ## Stage 2 Roadmap
 
 - Replace mock repositories with Firebase Auth + user-scoped Cloud Firestore (`users/{uid}/...`).
