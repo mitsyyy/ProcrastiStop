@@ -19,6 +19,7 @@ export const STORAGE_KEYS = {
   BLOCKER_PERMISSIONS: '@procrastistop/blocker_permissions',
   AUTH_USER: '@procrastistop/auth_user',
   ONBOARDING_COMPLETED: '@procrastistop/onboarding_completed',
+  SCHEDULED_NOTIFICATION_IDS: '@procrastistop/scheduled_notification_ids',
 } as const;
 
 const SECURE_AUTH_TOKEN_KEY = 'procrastistop_auth_token';
@@ -32,6 +33,7 @@ const DEMO_DATA_KEYS = [
   STORAGE_KEYS.ANALYTICS_BASELINE,
   STORAGE_KEYS.ACTIVE_SESSION,
   STORAGE_KEYS.BLOCKER_PERMISSIONS,
+  STORAGE_KEYS.SCHEDULED_NOTIFICATION_IDS,
 ] as const;
 
 let initPromise: Promise<void> | null = null;
