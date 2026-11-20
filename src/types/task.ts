@@ -14,6 +14,11 @@ export interface Task {
   priority: TaskPriority;
   status: TaskStatus;
   deadline: string | null; // ISO 8601 string
+  targetCompletionAt?: string | null; // Auto-scheduled 24h anti-procrastination buffer before deadline
+  dailySessionStartTime?: string; // "HH:mm" local daily focus session start time
+  dailyReminderCount?: number; // Minimum 3 free-will reminders per day
+  autoStartEnabled?: boolean; // Automatically start focus session when daily start time arrives
+  lastAutoStartedDate?: string | null; // YYYY-MM-DD local date key of last auto-escalation
   estimatedMinutes: number | null;
   createdAt: string;
   updatedAt: string;

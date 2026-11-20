@@ -8,6 +8,8 @@ export interface UserPreferences {
   checkpointEnabled: boolean;
   notificationsEnabled: boolean;
   remindBeforeSessionMinutes: number;
+  defaultDailySessionStartTime: string; // "HH:mm"
+  defaultDailyReminderCount: number; // Minimum 3 reminders/day
   theme: ThemeMode;
 }
 
@@ -22,7 +24,7 @@ export interface MockUser {
 
 export interface ScheduledReminderPreview {
   id: string;
-  kind: 'session' | 'deadline' | 'overdue';
+  kind: 'session' | 'nudge' | 'deadline' | 'overdue';
   title: string;
   body: string;
   scheduledLabel: string;

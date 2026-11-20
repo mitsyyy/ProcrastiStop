@@ -38,6 +38,8 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   checkpointEnabled: true,
   notificationsEnabled: true,
   remindBeforeSessionMinutes: 5,
+  defaultDailySessionStartTime: '19:00',
+  defaultDailyReminderCount: 3,
   theme: 'dark',
 };
 
