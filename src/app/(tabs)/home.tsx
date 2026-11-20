@@ -150,7 +150,7 @@ export default function HomeScreen() {
                     },
                   ]}
                 >
-                  {user?.initials ?? 'FL'}
+                  {user?.initials ?? 'PS'}
                 </Text>
               </Pressable>
             </View>
@@ -456,10 +456,10 @@ export default function HomeScreen() {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={[Typography.h3, { color: palette.text }]}>
-                  Reminder Previews
+                  Scheduled Reminders
                 </Text>
                 <Text style={[Typography.small, { color: palette.textMuted }]}>
-                  Simulated local deadline & session notifications
+                  5-min pre-session alerts, free-will nudges & deadlines
                 </Text>
               </View>
               <Pressable onPress={() => setRemindersVisible(false)} hitSlop={8}>
@@ -501,7 +501,7 @@ export default function HomeScreen() {
                     >
                       <View style={[styles.remIcon, { backgroundColor: toneBg }]}>
                         <AppIcon
-                          name={rem.kind === 'session' ? 'bell' : 'clock'}
+                          name={rem.kind === 'session' || rem.kind === 'nudge' ? 'bell' : 'clock'}
                           size={18}
                           color={toneColor}
                         />
