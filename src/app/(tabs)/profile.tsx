@@ -15,6 +15,7 @@ import { ScreenBackground } from '@/components/ui/ScreenBackground';
 import { SecondaryButton } from '@/components/ui/SecondaryButton';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { SelectField } from '@/components/ui/SelectField';
+import { TimeOfDayPicker } from '@/components/ui/TimeOfDayPicker';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   FOCUS_DURATION_PRESETS,
@@ -42,6 +43,8 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'light', label: 'Light' },
   { value: 'system', label: 'System' },
 ];
+
+const DAILY_NUDGE_OPTIONS = [3, 4, 5, 6] as const;
 
 export default function ProfileScreen() {
   const palette = useAppTheme();
@@ -109,7 +112,7 @@ export default function ProfileScreen() {
           >
             <View style={styles.avatar}>
               <Text style={[Typography.h3, { color: '#ffffff' }]}>
-                {user?.initials ?? 'FL'}
+                {user?.initials ?? 'PS'}
               </Text>
             </View>
             <View style={styles.profileCopy}>
@@ -403,6 +406,57 @@ export default function ProfileScreen() {
                   }
                   icon="bell"
                 />
+
+                <TimeOfDayPicker
+                  label="Default daily focus session start"
+                  value={preferences.defaultDailySessionStartTime ?? '19:00'}
+                  onChange={(nextHHmm) =>
+                    void updatePreferences({ defaultDailySessionStartTime: nextHHmm })
+                  }
+                  helperText="Default start time used for new tasks and daily auto-escalation."
+                />
+
+                <View style={styles.themeBlock}>
+                  <Text
+                    style={[Typography.caption, { color: palette.textSecondary, fontWeight: '600' }]}
+                  >
+                    Default free-will reminders per day (min 3)
+                  </Text>
+                  <View
+                    style={[
+                      styles.segmented,
+                      { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
+                    ]}
+                  >
+                    {DAILY_NUDGE_OPTIONS.map((count) => {
+                      const active = (preferences.defaultDailyReminderCount ?? 3) === count;
+                      return (
+                        <Pressable
+                          key={count}
+                          onPress={() =>
+                            void updatePreferences({ defaultDailyReminderCount: count })
+                          }
+                          style={[
+                            styles.segBtn,
+                            active && { backgroundColor: palette.surfaceGlassStrong },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              Typography.caption,
+                              {
+                                color: active ? palette.accentMint : palette.textMuted,
+                                fontWeight: active ? '700' : '600',
+                              },
+                            ]}
+                          >
+                            {count}× / day
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
               </View>
 
               <Divider />

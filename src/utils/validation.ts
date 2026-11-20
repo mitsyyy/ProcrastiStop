@@ -53,3 +53,27 @@ export function validateFocusDuration(minutes: number): ValidationResult {
   }
   return { valid: true };
 }
+
+export function validateTaskDeadline(deadlineIso: string | null): ValidationResult {
+  if (!deadlineIso) {
+    return { valid: false, error: 'Every task requires a deadline so we can protect a 24h buffer.' };
+  }
+  const ts = new Date(deadlineIso).getTime();
+  if (Number.isNaN(ts)) {
+    return { valid: false, error: 'Select a valid deadline date and time.' };
+  }
+  return { valid: true };
+}
+
+export function validateDailyReminderCount(count: number): ValidationResult {
+  if (!Number.isFinite(count) || !Number.isInteger(count) || count < 3) {
+    return {
+      valid: false,
+      error: 'Choose at least 3 daily reminders to prevent last-minute cramming.',
+    };
+  }
+  if (count > 8) {
+    return { valid: false, error: 'You can schedule up to 8 daily reminders per task.' };
+  }
+  return { valid: true };
+}

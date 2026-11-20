@@ -15,7 +15,16 @@ import { IconButton } from '@/components/ui/IconButton';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { ScreenBackground } from '@/components/ui/ScreenBackground';
 import { SecondaryButton } from '@/components/ui/SecondaryButton';
+import { formatTime12HourLabel } from '@/components/ui/TimeOfDayPicker';
 import { Layout, Radii, Spacing, Typography } from '@/constants/theme';
+import {
+  computeDailyNudgeDates,
+  computeTargetCompletionIso,
+  DEFAULT_DAILY_SESSION_TIME,
+  formatTimeShort,
+  getSessionDateForDay,
+  normalizeDailyReminderCount,
+} from '@/features/tasks/antiProcrastinationScheduler';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useFocusStore } from '@/store/focusStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -45,6 +54,7 @@ export default function TaskDetailScreen() {
   const updateTask = useTaskStore((s) => s.updateTask);
   const deleteTask = useTaskStore((s) => s.deleteTask);
   const sessions = useFocusStore((s) => s.sessions);
+  const preferences = useSettingsStore((s) => s.preferences);
   const showToast = useSettingsStore((s) => s.showToast);
 
   const linkedSessions = useMemo(
@@ -80,6 +90,22 @@ export default function TaskDetailScreen() {
       : deadlineState === 'due_soon'
         ? palette.warningText
         : palette.accentMint;
+
+  const targetCompletionIso =
+    task.targetCompletionAt ?? computeTargetCompletionIso(task.deadline);
+  const dailySessionTime =
+    task.dailySessionStartTime ??
+    preferences.defaultDailySessionStartTime ??
+    DEFAULT_DAILY_SESSION_TIME;
+  const dailyReminders = normalizeDailyReminderCount(
+    task.dailyReminderCount ?? preferences.defaultDailyReminderCount,
+  );
+  const sampleNudges = computeDailyNudgeDates(
+    getSessionDateForDay(new Date(), dailySessionTime),
+    dailyReminders,
+  )
+    .map(formatTimeShort)
+    .join(' · ');
 
   const handleStatusChange = async (nextStatus: TaskStatus) => {
     await updateTask(task.id, { status: nextStatus });
@@ -154,11 +180,59 @@ export default function TaskDetailScreen() {
                 {formatRemainingTimeUntil(task.deadline)}
               </Text>
               <Text style={[Typography.small, { color: palette.textMuted }]}>
-                {formatFullDateTime(task.deadline)}
+                Deadline: {formatFullDateTime(task.deadline)}
               </Text>
+              {targetCompletionIso ? (
+                <Text style={[Typography.small, { color: palette.accentMint, marginTop: 3 }]}>
+                  Target finish (24h early): {formatFullDateTime(targetCompletionIso)}
+                </Text>
+              ) : null}
             </View>
             <AppIcon name="clock" size={26} color={panelAccent} />
           </View>
+
+          {/* Anti-Procrastination Schedule Card */}
+          <Card style={styles.scheduleCard}>
+            <View style={styles.scheduleHeader}>
+              <AppIcon name="bell" size={17} color={palette.accentMint} />
+              <Text style={[Typography.label, { color: palette.text }]}>
+                Anti-Procrastination Schedule
+              </Text>
+            </View>
+            <View style={styles.scheduleMetaRow}>
+              <Text style={[Typography.small, { color: palette.textMuted }]}>Daily focus start</Text>
+              <Text style={[Typography.caption, { color: palette.text, fontWeight: '700' }]}>
+                {formatTime12HourLabel(dailySessionTime)}
+              </Text>
+            </View>
+            <View style={styles.scheduleMetaRow}>
+              <Text style={[Typography.small, { color: palette.textMuted }]}>
+                Free-will nudges ({dailyReminders}/day)
+              </Text>
+              <Text
+                style={[Typography.small, { color: palette.accentMint, fontWeight: '600', flex: 1, textAlign: 'right' }]}
+              >
+                {sampleNudges}
+              </Text>
+            </View>
+            <View style={styles.scheduleMetaRow}>
+              <Text style={[Typography.small, { color: palette.textMuted }]}>
+                Auto-start escalation
+              </Text>
+              <Text
+                style={[
+                  Typography.small,
+                  {
+                    color:
+                      task.autoStartEnabled !== false ? palette.successText : palette.textMuted,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                {task.autoStartEnabled !== false ? 'Enabled' : 'Disabled'}
+              </Text>
+            </View>
+          </Card>
 
           {/* 2x2 Info Grid */}
           <Card noPadding style={styles.infoGridCard}>
@@ -372,6 +446,22 @@ const styles = StyleSheet.create({
   },
   infoGridCard: {
     marginTop: Spacing.lg,
+  },
+  scheduleCard: {
+    marginTop: Spacing.md,
+    gap: Spacing.sm,
+  },
+  scheduleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs + 2,
+    marginBottom: 2,
+  },
+  scheduleMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
   },
   gridRow: {
     flexDirection: 'row',

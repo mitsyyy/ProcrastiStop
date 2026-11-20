@@ -8,7 +8,7 @@ import {
   Manrope_800ExtraBold,
   useFonts,
 } from '@expo-google-fonts/manrope';
-import * as Notifications from 'expo-notifications';
+import { addNotificationResponseReceivedListener } from 'expo-notifications';
 import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -19,6 +19,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Toast } from '@/components/ui/Toast';
 import { useAppHydration } from '@/hooks/useAppHydration';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { useAutoSessionEscalation } from '@/hooks/useAutoSessionEscalation';
 import {
   configureNotificationHandler,
   ensureAndroidNotificationChannel,
@@ -41,6 +42,8 @@ export default function RootLayout() {
 
   const ready = (fontsLoaded || Boolean(fontError)) && hydrated;
 
+  useAutoSessionEscalation(ready);
+
   useEffect(() => {
     if (ready) {
       void SplashScreen.hideAsync();
@@ -61,7 +64,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    const subscription = addNotificationResponseReceivedListener((response) => {
       const targetRoute = response.notification.request.content.data?.route;
       if (typeof targetRoute === 'string' && targetRoute.startsWith('/')) {
         router.push(targetRoute as never);

@@ -34,8 +34,12 @@ export default function EditTaskScreen() {
   }
 
   const handleSubmit = async (values: TaskFormValues) => {
-    await updateTask(task.id, values);
-    showToast('Task updated.', 'success');
+    const startTimeChanged = values.dailySessionStartTime !== task.dailySessionStartTime;
+    await updateTask(task.id, {
+      ...values,
+      ...(startTimeChanged ? { lastAutoStartedDate: null } : {}),
+    });
+    showToast('Task and anti-procrastination schedule updated.', 'success');
     router.back();
   };
 
