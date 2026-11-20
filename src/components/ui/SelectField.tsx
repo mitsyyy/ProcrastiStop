@@ -87,7 +87,7 @@ export function SelectField<T extends string = string>({
                 <AppIcon name="close" size={20} color={palette.textMuted} />
               </Pressable>
             </View>
-            <ScrollView style={styles.optionsList}>
+            <ScrollView style={styles.optionsList} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}>
               {options.map((opt) => {
                 const isSelected = opt.value === value;
                 return (

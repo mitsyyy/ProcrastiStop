@@ -79,6 +79,7 @@ export default function FocusCompletedScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           <View style={styles.heroCenter}>

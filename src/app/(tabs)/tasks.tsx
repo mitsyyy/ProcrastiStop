@@ -70,6 +70,7 @@ export default function TasksScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           <AppHeader
@@ -127,6 +128,7 @@ export default function TasksScreen() {
               styles.filterBar,
               { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
             ]}
+            showsVerticalScrollIndicator={false}
           >
             {STATUS_TABS.map((tab) => {
               const active = state.filterStatus === tab.key;
@@ -163,6 +165,7 @@ export default function TasksScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.categoryScroll}
+              showsVerticalScrollIndicator={false}
             >
               {['All', ...TASK_CATEGORIES].map((cat) => {
                 const active = state.filterCategory === cat;

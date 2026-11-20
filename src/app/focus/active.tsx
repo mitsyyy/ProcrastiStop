@@ -124,6 +124,7 @@ export default function ActiveFocusScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           {/* Top Bar */}

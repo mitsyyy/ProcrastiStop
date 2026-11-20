@@ -104,6 +104,7 @@ export default function TaskDetailScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           <AppHeader

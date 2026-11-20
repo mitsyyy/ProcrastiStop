@@ -107,6 +107,8 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
             },
           ]}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
         >
           <View style={styles.innerContainer}>
             <AppHeader

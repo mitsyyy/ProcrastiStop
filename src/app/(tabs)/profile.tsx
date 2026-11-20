@@ -88,6 +88,7 @@ export default function ProfileScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           <AppHeader
