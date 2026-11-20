@@ -1,56 +1,40 @@
-# Welcome to your Expo app 👋
+# ProcrastiStop
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+ProcrastiStop is an Android-prioritized, deadline-driven productivity and digital distraction management mobile app built with Expo, React Native, Expo Router, Zustand, and TypeScript.
 
-## Get started
+This repository implements **Stage 1 (Frontend-First Architecture)**: local mock JSON seed datasets persisted to `AsyncStorage` behind typed repository interfaces so Firebase Auth/Firestore and native Android modules can replace mock services in Stage 2 without rewriting screen layouts.
 
-1. Install dependencies
+## Core Capabilities (Stage 1)
 
-   ```bash
-   npm install
-   ```
+- **Tasks & Deadlines:** Full CRUD, status/category filters, deadline/priority sorting, and overdue/due-soon visual indicators.
+- **Background-Resilient Focus Timer:** Timestamp-based countdown (`endTimestampMs - Date.now()`) persisted via `AsyncStorage` with pause/resume, foreground recovery, and completion summary.
+- **Simulated Android App Blocker:** Distracting Android app selector, simulated `Usage Access` and `Display Over Other Apps` permission cards (`Granted`, `Not Granted`, `Unavailable`), and a demo blocked-app interception modal wired through `src/services/native/blockerBridge.ts`.
+- **Optional Camera Checkpoints:** Contextual `expo-camera` permission explainer, live preview frame, simulated object detection (pass & supportive non-shaming retry flows), and privacy-first metadata records (`imagePath: null`).
+- **Analytics, Preferences & Demo Reset:** Local focus history, weekly/category breakdowns, theme switcher (`dark` / `light` / `system`), reminder previews, and one-tap **Reset Demo Data**.
 
-2. Start the app
+## Architecture
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```text
+Screens (src/app/) -> Zustand Stores (src/store/) -> Repositories (src/repositories/) -> Local Storage / Mock Seeds (src/services/local/)
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+- `src/app/` — Expo Router screens (onboarding gate, mock auth, 4-tab layout, tasks CRUD/detail, and focus setup/active/checkpoint/completed flows).
+- `src/components/` — Reusable UI primitives plus domain components (`ui`, `task`, `focus`, `blocker`, `checkpoint`).
+- `src/repositories/` — Typed data boundaries (`TaskRepository`, `FocusRepository`, `SettingsRepository`, `AnalyticsRepository`).
+- `src/services/` — Local persistence, simulated notification previews, native blocker bridge stub, and Stage 2 Firebase notes.
 
-### Other setup steps
+## Development Commands
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+npm install
+npx expo start        # Start Expo dev server
+npx expo lint         # Run ESLint
+npx tsc --noEmit      # Run strict TypeScript check
+npx expo-doctor       # Verify Expo SDK & dependency health
+```
 
-## Learn more
+## Stage 2 Roadmap
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- Replace mock repositories with Firebase Auth + user-scoped Cloud Firestore (`users/{uid}/...`).
+- Implement the native Kotlin Android app blocker behind `BlockerBridge` (`UsageStatsManager` + overlay).
+- Integrate on-device ML Kit object detection for camera checkpoints in a custom Expo development build.
