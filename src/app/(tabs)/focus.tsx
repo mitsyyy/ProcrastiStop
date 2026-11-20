@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppSelectionItem } from '@/components/blocker/AppSelectionItem';
@@ -19,6 +20,14 @@ import { BLOCKER_PERMISSION_DETAILS } from '@/features/app-blocker/blockerMeta';
 import { useReminders } from '@/features/notifications/useReminders';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useFocusTicker } from '@/hooks/useFocusTicker';
+import {
+  getNotificationPermissionState,
+  type NotificationPermissionState,
+  openAppSystemSettings,
+  requestNotificationPermission,
+  scheduleReminderNotification,
+  sendTestLocalNotification,
+} from '@/services/notifications/notificationService';
 import { useBlockerStore } from '@/store/blockerStore';
 import { useFocusStore } from '@/store/focusStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -27,6 +36,26 @@ import { formatCountdown } from '@/utils/date';
 export default function FocusHubScreen() {
   const palette = useAppTheme();
   const insets = useSafeAreaInsets();
+  const [notifPerm, setNotifPerm] = useState<NotificationPermissionState>({
+    status: 'undetermined',
+    canAskAgain: true,
+  });
+
+  useEffect(() => {
+    let active = true;
+    const loadPerm = async () => {
+      const next = await getNotificationPermissionState();
+      if (active) setNotifPerm(next);
+    };
+    void loadPerm();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void loadPerm();
+    });
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, []);
 
   const activeSession = useFocusStore((s) => s.activeSession);
   const remainingSeconds = useFocusStore((s) => s.remainingSeconds);
@@ -238,27 +267,153 @@ export default function FocusHubScreen() {
             </View>
           </View>
 
-          {/* Simulated Notification & Reminder Previews */}
+          {/* Local Android Notifications & Reminder Previews */}
           <View style={styles.section}>
             <SectionHeader
-              title="Reminder Previews"
-              eyebrow="Simulated Scheduling"
-              actionLabel="Test toast"
-              onActionPress={() =>
-                showToast(
-                  preferences.notificationsEnabled
-                    ? `Reminder preview: Focus block starts in ${preferences.remindBeforeSessionMinutes} min.`
-                    : 'Enable notifications in Profile to receive reminders.',
-                  preferences.notificationsEnabled ? 'info' : 'warning',
-                )
+              title="Notifications & Reminders"
+              eyebrow="Local Device Alerts"
+              rightMeta={
+                notifPerm.status === 'granted'
+                  ? 'Allowed'
+                  : notifPerm.status === 'denied'
+                    ? 'Denied'
+                    : notifPerm.status === 'unavailable'
+                      ? 'Device only'
+                      : 'Permission needed'
               }
             />
-            <Card>
+
+            <Card style={styles.notifControlsCard}>
+              <View style={styles.notifStatusRow}>
+                <View style={styles.switchCopy}>
+                  <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
+                    Device notification access
+                  </Text>
+                  <Text style={[Typography.small, { color: palette.textMuted }]}>
+                    {notifPerm.status === 'granted'
+                      ? 'Ready to deliver focus completion and test alerts.'
+                      : notifPerm.status === 'denied' && !notifPerm.canAskAgain
+                        ? 'Disabled in Android Settings. Open Settings to re-enable.'
+                        : 'Allow local notifications to receive focus alerts.'}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.permPill,
+                    {
+                      backgroundColor:
+                        notifPerm.status === 'granted'
+                          ? palette.successSoft
+                          : notifPerm.status === 'denied'
+                            ? palette.dangerSoft
+                            : palette.warningSoft,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      Typography.small,
+                      {
+                        color:
+                          notifPerm.status === 'granted'
+                            ? palette.successText
+                            : notifPerm.status === 'denied'
+                              ? palette.dangerText
+                              : palette.warningText,
+                        fontWeight: '700',
+                      },
+                    ]}
+                  >
+                    {notifPerm.status === 'granted'
+                      ? 'Granted'
+                      : notifPerm.status === 'denied'
+                        ? 'Denied'
+                        : notifPerm.status === 'unavailable'
+                          ? 'Unavailable'
+                          : 'Not asked'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.notifActionsRow}>
+                {notifPerm.status !== 'granted' ? (
+                  <PrimaryButton
+                    title={
+                      notifPerm.status === 'denied' && !notifPerm.canAskAgain
+                        ? 'Open App Settings'
+                        : 'Allow Notifications'
+                    }
+                    icon="bell"
+                    tone="emerald"
+                    fullWidth={false}
+                    style={styles.flexOne}
+                    onPress={() => {
+                      if (notifPerm.status === 'denied' && !notifPerm.canAskAgain) {
+                        void openAppSystemSettings();
+                      } else {
+                        void requestNotificationPermission().then((next) => {
+                          setNotifPerm(next);
+                          showToast(
+                            next.status === 'granted'
+                              ? 'Device notifications enabled.'
+                              : 'Notification permission not granted.',
+                            next.status === 'granted' ? 'success' : 'warning',
+                          );
+                        });
+                      }
+                    }}
+                  />
+                ) : null}
+
+                <SecondaryButton
+                  title="Send Test Alert (3s)"
+                  icon="bell"
+                  style={styles.flexOne}
+                  onPress={() => {
+                    void sendTestLocalNotification(3).then((res) => {
+                      setNotifPerm({
+                        status: res.permissionStatus,
+                        canAskAgain: res.canAskAgain,
+                      });
+                      if (res.scheduled) {
+                        showToast(
+                          'Test notification scheduled — it will arrive in 3 seconds.',
+                          'success',
+                        );
+                      } else {
+                        showToast(res.reason ?? 'Unable to schedule notification.', 'warning');
+                      }
+                    });
+                  }}
+                />
+              </View>
+            </Card>
+
+            <Card style={styles.reminderCard}>
               {reminders.length > 0 ? (
                 <View style={styles.remList}>
                   {reminders.map((rem, idx) => (
-                    <View
+                    <Pressable
                       key={rem.id}
+                      onPress={() => {
+                        void scheduleReminderNotification({
+                          title: rem.title,
+                          body: rem.body,
+                          delaySeconds: 4,
+                          route: rem.taskId ? `/tasks/${rem.taskId}` : '/(tabs)/focus',
+                        }).then((res) => {
+                          setNotifPerm({
+                            status: res.permissionStatus,
+                            canAskAgain: res.canAskAgain,
+                          });
+                          showToast(
+                            res.scheduled
+                              ? `Scheduled "${rem.title}" alert in 4 seconds.`
+                              : res.reason ?? 'Enable notifications to schedule alerts.',
+                            res.scheduled ? 'success' : 'warning',
+                          );
+                        });
+                      }}
                       style={[
                         styles.remRow,
                         idx < reminders.length - 1 && {
@@ -299,11 +454,11 @@ export default function FocusHubScreen() {
                         <Text style={[Typography.caption, { color: palette.textMuted }]}>
                           {rem.body}
                         </Text>
+                        <Text style={[Typography.small, { color: palette.accentMint, marginTop: 2 }]}>
+                          Tap to test in 4s · {rem.scheduledLabel}
+                        </Text>
                       </View>
-                      <Text style={[Typography.small, { color: palette.accentMint }]}>
-                        {rem.scheduledLabel}
-                      </Text>
-                    </View>
+                    </Pressable>
                   ))}
                 </View>
               ) : (
@@ -422,5 +577,30 @@ const styles = StyleSheet.create({
   remCopy: {
     flex: 1,
     gap: 2,
+  },
+  notifControlsCard: {
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  notifStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+  },
+  permPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radii.full,
+  },
+  notifActionsRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  reminderCard: {
+    marginTop: 0,
+  },
+  flexOne: {
+    flex: 1,
   },
 });

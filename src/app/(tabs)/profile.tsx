@@ -27,6 +27,11 @@ import { useAnalytics } from '@/features/analytics/useAnalytics';
 import { BLOCKER_PERMISSION_DETAILS } from '@/features/app-blocker/blockerMeta';
 import { useDemoReset } from '@/hooks/useAppHydration';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import {
+  openAppSystemSettings,
+  requestNotificationPermission,
+  sendTestLocalNotification,
+} from '@/services/notifications/notificationService';
 import { useBlockerStore } from '@/store/blockerStore';
 import { useFocusStore } from '@/store/focusStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -407,14 +412,46 @@ export default function ProfileScreen() {
                     Notifications & reminders
                   </Text>
                   <Text style={[Typography.small, { color: palette.textMuted }]}>
-                    Simulated session & deadline alerts
+                    Local session completion & deadline alerts
                   </Text>
                 </View>
                 <ToggleSwitch
                   value={preferences.notificationsEnabled}
-                  onValueChange={(v) => void updatePreferences({ notificationsEnabled: v })}
+                  onValueChange={(v) => {
+                    void updatePreferences({ notificationsEnabled: v });
+                    if (v) {
+                      void requestNotificationPermission().then((perm) => {
+                        if (perm.status !== 'granted' && perm.status !== 'unavailable') {
+                          showToast(
+                            perm.canAskAgain
+                              ? 'Allow notifications to receive focus completion alerts.'
+                              : 'Enable notifications in Android Settings.',
+                            'warning',
+                          );
+                        }
+                      });
+                    }
+                  }}
                 />
               </View>
+
+              <SecondaryButton
+                title="Send Test Notification (3s)"
+                icon="bell"
+                fullWidth
+                onPress={() => {
+                  void sendTestLocalNotification(3).then((res) => {
+                    if (res.scheduled) {
+                      showToast('Test notification will arrive in 3 seconds.', 'success');
+                    } else if (res.permissionStatus === 'denied' && !res.canAskAgain) {
+                      showToast('Notifications blocked in Settings — opening Settings.', 'warning');
+                      void openAppSystemSettings();
+                    } else {
+                      showToast(res.reason ?? 'Unable to schedule notification.', 'warning');
+                    }
+                  });
+                }}
+              />
 
               <Divider />
 
