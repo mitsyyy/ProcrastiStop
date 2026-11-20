@@ -7,6 +7,7 @@ import { formatFullDateTime } from '@/utils/date';
 import { AppIcon } from './AppIcon';
 import { PrimaryButton } from './PrimaryButton';
 import { SecondaryButton } from './SecondaryButton';
+import { ExactTimeSelector } from './TimeOfDayPicker';
 
 interface DateTimePickerProps {
   label: string;
@@ -72,6 +73,26 @@ export function DateTimePicker({
     setDraftDate((prev) => {
       const next = new Date(prev);
       next.setFullYear(viewYear, viewMonth, day);
+      return next;
+    });
+  };
+
+  const applyQuickDateOffset = (daysFromToday: number) => {
+    const target = new Date();
+    target.setDate(target.getDate() + daysFromToday);
+    setDraftDate((prev) => {
+      const next = new Date(prev);
+      next.setFullYear(target.getFullYear(), target.getMonth(), target.getDate());
+      return next;
+    });
+    setViewYear(target.getFullYear());
+    setViewMonth(target.getMonth());
+  };
+
+  const updateDraftTime = (hour24: number, minute: number) => {
+    setDraftDate((prev) => {
+      const next = new Date(prev);
+      next.setHours(hour24, minute, 0, 0);
       return next;
     });
   };
@@ -166,6 +187,29 @@ export function DateTimePicker({
                 </Text>
               </View>
 
+              {/* Quick Date Presets */}
+              <View style={styles.quickRow}>
+                {[
+                  { label: 'Tomorrow', offset: 1 },
+                  { label: '+2 days', offset: 2 },
+                  { label: '+3 days', offset: 3 },
+                  { label: '+1 week', offset: 7 },
+                ].map((preset) => (
+                  <Pressable
+                    key={preset.label}
+                    onPress={() => applyQuickDateOffset(preset.offset)}
+                    style={[
+                      styles.quickChip,
+                      { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
+                    ]}
+                  >
+                    <Text style={[Typography.small, { color: palette.accentMint, fontWeight: '700' }]}>
+                      {preset.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
               {/* Interactive Calendar Grid */}
               <View
                 style={[
@@ -250,6 +294,26 @@ export function DateTimePicker({
                   })}
                 </View>
               </View>
+
+              {/* Exact 1-Minute Precision Time Selector */}
+              <View
+                style={[
+                  styles.timeCard,
+                  { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
+                ]}
+              >
+                <View style={styles.timeCardHeader}>
+                  <AppIcon name="clock" size={16} color={palette.accentMint} />
+                  <Text style={[Typography.label, { color: palette.text }]}>
+                    Exact time (1-min precision)
+                  </Text>
+                </View>
+                <ExactTimeSelector
+                  hour24={draftDate.getHours()}
+                  minute={draftDate.getMinutes()}
+                  onChangeTime={updateDraftTime}
+                />
+              </View>
             </ScrollView>
 
             <View style={styles.modalActions}>
@@ -311,7 +375,19 @@ const styles = StyleSheet.create({
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sheetScroll: { gap: Spacing.md },
   previewPanel: { padding: Spacing.md, borderRadius: Radii.md, borderWidth: 1 },
+  quickRow: { flexDirection: 'row', gap: Spacing.xs + 2, flexWrap: 'wrap' },
+  quickChip: {
+    flexGrow: 1,
+    minWidth: 68,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 7,
+    borderRadius: Radii.full,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
   calendarCard: { borderRadius: Radii.lg, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm },
+  timeCard: { borderRadius: Radii.lg, borderWidth: 1, padding: Spacing.md, gap: Spacing.md },
+  timeCardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   monthHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   navArrow: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   weekRow: { flexDirection: 'row', justifyContent: 'space-between' },
