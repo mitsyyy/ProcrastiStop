@@ -1,136 +1,104 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs } from 'expo-router';
 import type { ComponentProps } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
-import { Layout, Radii, Shadows, Spacing, Typography } from '@/constants/theme';
+import { Layout, Radii, Shadows, Spacing } from '@/constants/theme';
 import { useAppTheme } from '@/hooks/useAppTheme';
-import { useFocusStore } from '@/store/focusStore';
 
 type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
 const TAB_CONFIG: Record<string, { label: string; icon: AppIconName }> = {
   home: { label: 'Home', icon: 'home' },
   tasks: { label: 'Tasks', icon: 'check' },
-  focus: { label: 'Focus', icon: 'target' },
+  focus: { label: 'Focus & Stats', icon: 'chart' },
   profile: { label: 'Profile', icon: 'user' },
 };
 
 function FloatingTabBar({ state, descriptors, emitter, navigateToTab }: TabBarProps) {
   const palette = useAppTheme();
   const insets = useSafeAreaInsets();
-  const activeSession = useFocusStore((s) => s.activeSession);
-  const hasLiveSession =
-    activeSession?.status === 'active' || activeSession?.status === 'paused';
+
+  const leftRoutes = state.routes.slice(0, 2);
+  const rightRoutes = state.routes.slice(2);
+
+  const renderTabItem = (route: TabBarProps['state']['routes'][number], routeIndex: number) => {
+    const isFocused = state.index === routeIndex;
+    const meta = TAB_CONFIG[route.name] ?? { label: route.name, icon: 'home' as const };
+    const { options } = descriptors[route.key];
+
+    const onPress = () => {
+      const event = emitter.emit({
+        type: 'tabPress',
+        target: route.key,
+        canPreventDefault: true,
+      });
+      if (!isFocused && !event.defaultPrevented) {
+        navigateToTab(route.key);
+      }
+    };
+
+    const activeBadgeBg =
+      palette.mode === 'dark' ? 'rgba(62, 207, 137, 0.16)' : palette.accentMintSoft;
+    const iconColor = isFocused
+      ? palette.mode === 'dark'
+        ? '#55dda0'
+        : palette.primary
+      : palette.mode === 'dark'
+        ? 'rgba(210, 224, 217, 0.72)'
+        : palette.textMuted;
+
+    return (
+      <Pressable
+        key={route.key}
+        accessibilityRole="button"
+        accessibilityState={isFocused ? { selected: true } : {}}
+        accessibilityLabel={options.tabBarAccessibilityLabel ?? meta.label}
+        onPress={onPress}
+        style={styles.tabBtn}
+      >
+        <View
+          style={[
+            styles.iconCircle,
+            isFocused && { backgroundColor: activeBadgeBg },
+          ]}
+        >
+          <AppIcon name={meta.icon} size={22} color={iconColor} strokeWidth={2} />
+        </View>
+      </Pressable>
+    );
+  };
 
   return (
     <View
       pointerEvents="box-none"
       style={[
         styles.dockWrapper,
-        { paddingBottom: Math.max(insets.bottom, Spacing.sm) + 4 },
+        { paddingBottom: Math.max(insets.bottom, Spacing.sm) + 6 },
       ]}
     >
       <View
         style={[
           styles.dock,
-          Shadows.floatingNav,
+          palette.mode === 'light' && Shadows.floatingNav,
           {
-            backgroundColor: palette.navBarBg,
-            borderColor: palette.navBarBorder,
+            backgroundColor:
+              palette.mode === 'dark' ? 'rgba(17, 46, 36, 0.96)' : palette.navBarBg,
+            borderColor:
+              palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.14)' : palette.navBarBorder,
           },
         ]}
       >
-        {state.routes.map((route, index) => {
-          const isFocused = state.index === index;
-          const meta = TAB_CONFIG[route.name] ?? { label: route.name, icon: 'home' as const };
-          const { options } = descriptors[route.key];
+        <View style={styles.tabGroup}>
+          {leftRoutes.map((route, idx) => renderTabItem(route, idx))}
+        </View>
 
-          const onPress = () => {
-            const event = emitter.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
-            if (!isFocused && !event.defaultPrevented) {
-              navigateToTab(route.key);
-            }
-          };
+        <View style={styles.centerSlot} />
 
-          const isFocusTab = route.name === 'focus';
-
-          return (
-            <Pressable
-              key={route.key}
-              accessibilityRole="button"
-              accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel ?? meta.label}
-              onPress={onPress}
-              style={styles.tabBtn}
-            >
-              {isFocusTab ? (
-                <View style={styles.focusPillWrap}>
-                  <LinearGradient
-                    colors={
-                      isFocused || hasLiveSession
-                        ? palette.energyGradient
-                        : palette.mode === 'dark'
-                          ? ['rgba(255, 198, 61, 0.24)', 'rgba(255, 122, 26, 0.22)']
-                          : ['#edf3ed', '#dce8dd']
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[
-                      styles.focusIconCircle,
-                      (isFocused || hasLiveSession) && Shadows.energyButton,
-                    ]}
-                  >
-                    <AppIcon
-                      name={meta.icon}
-                      size={20}
-                      color={isFocused || hasLiveSession ? '#ffffff' : palette.accentMint}
-                    />
-                  </LinearGradient>
-                  {hasLiveSession ? <View style={styles.liveDot} /> : null}
-                </View>
-              ) : (
-                <View
-                  style={[
-                    styles.iconPill,
-                    isFocused && {
-                      backgroundColor: palette.accentMintSoft,
-                    },
-                  ]}
-                >
-                  <AppIcon
-                    name={meta.icon}
-                    size={20}
-                    color={isFocused ? palette.accentMint : palette.textMuted}
-                  />
-                </View>
-              )}
-
-              <Text
-                style={[
-                  Typography.small,
-                  styles.label,
-                  {
-                    color: isFocused
-                      ? isFocusTab
-                        ? palette.energyOrange
-                        : palette.accentMint
-                      : palette.textMuted,
-                    fontWeight: isFocused ? '700' : '600',
-                  },
-                ]}
-              >
-                {meta.label}
-              </Text>
-            </Pressable>
-          );
-        })}
+        <View style={styles.tabGroup}>
+          {rightRoutes.map((route, idx) => renderTabItem(route, idx + 2))}
+        </View>
       </View>
     </View>
   );
@@ -162,52 +130,36 @@ const styles = StyleSheet.create({
   dock: {
     width: '100%',
     maxWidth: Layout.maxContentWidth,
-    height: Layout.floatingNavHeight,
-    borderRadius: Radii.xxl,
+    height: 66,
+    borderRadius: Radii.full,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.sm,
+  },
+  tabGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  centerSlot: {
+    width: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabBtn: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    height: '100%',
+    height: 58,
   },
-  iconPill: {
-    width: 44,
-    height: 32,
-    borderRadius: 16,
+  iconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  focusPillWrap: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  focusIconCircle: {
-    width: 44,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  liveDot: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: '#55dda0',
-    borderWidth: 1.5,
-    borderColor: '#071b18',
-  },
-  label: {
-    fontSize: 10,
   },
 });
