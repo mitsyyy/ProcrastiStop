@@ -8,16 +8,21 @@
     "scheme": "procrastistop",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.procrastistop.app",
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.procrastistop.app",
       "adaptiveIcon": {
         "backgroundColor": "#0a3127",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "output": "server",
@@ -40,11 +45,30 @@
           "cameraPermission": "Allow ProcrastiStop to access your camera for optional visual work-material checkpoints.",
           "recordAudioAndroid": false
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#2eac73",
+          "defaultChannel": "procrastistop-reminders",
+          "enableRemoteNotifications": false
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "739d6646-5894-4450-813d-831a6d0d57aa"
+      }
+    },
+    "owner": "ichzi"
   }
 }
