@@ -41,6 +41,7 @@ export interface PersistedActiveSession {
   remainingSeconds: number;
   lastSavedAtMs: number;
   checkpointTriggered: boolean;
+  completionNotificationId?: string | null;
 }
 
 export interface FocusRepository {

@@ -1,7 +1,7 @@
 import { type CameraType, type CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
-import { useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CheckpointCameraFrame } from '@/components/checkpoint/CheckpointCameraFrame';
@@ -30,7 +30,16 @@ export default function CameraCheckpointScreen() {
   const palette = useAppTheme();
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView | null>(null);
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, requestPermission, getPermission] = useCameraPermissions();
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void getPermission();
+      }
+    });
+    return () => sub.remove();
+  }, [getPermission]);
 
   const activeSession = useFocusStore((s) => s.activeSession);
   const recordCheckpointResult = useFocusStore((s) => s.recordCheckpointResult);
@@ -113,23 +122,35 @@ export default function CameraCheckpointScreen() {
               <PermissionExplainer
                 icon="camera"
                 title="Camera checkpoint (optional)"
-                description="Point your camera at your desk to check if broad work materials such as a book, notebook, or laptop are visible."
+                description={
+                  permission.canAskAgain
+                    ? 'Point your camera at your desk to check if broad work materials such as a book, notebook, or laptop are visible.'
+                    : 'Camera access was previously denied. Open Android App Settings to allow Camera permission, then return here.'
+                }
                 privacyNote="Stage 1 uses simulated object detection. Photos are never saved or uploaded (imagePath: null)."
                 primaryLabel={
-                  permission.canAskAgain
-                    ? 'Allow Camera Access'
-                    : 'Camera Denied — Continue Anyway'
+                  permission.canAskAgain ? 'Allow Camera Access' : 'Open App Settings'
                 }
                 onPrimaryPress={() => {
                   if (permission.canAskAgain) {
                     void requestPermission();
                   } else {
-                    void handleReturnToFocus();
+                    void Linking.openSettings();
                   }
                 }}
                 secondaryLabel="Skip & Return to Focus"
                 onSecondaryPress={() => void handleReturnToFocus()}
               />
+              {permission.canAskAgain ? (
+                <Pressable
+                  onPress={() => void Linking.openSettings()}
+                  style={styles.settingsShortcut}
+                >
+                  <Text style={[Typography.small, { color: palette.accentMint, fontWeight: '700' }]}>
+                    Permission blocked? Open App Settings
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : (
             <View style={styles.cameraFlow}>
@@ -291,6 +312,11 @@ const styles = StyleSheet.create({
   },
   explainerWrap: {
     marginTop: Spacing.xl,
+    gap: Spacing.md,
+  },
+  settingsShortcut: {
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
   },
   cameraFlow: {
     gap: Spacing.lg,
