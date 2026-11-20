@@ -16,6 +16,7 @@ import { SecondaryButton } from '@/components/ui/SecondaryButton';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { Layout, Radii, Spacing, Typography } from '@/constants/theme';
+import { useAnalytics } from '@/features/analytics/useAnalytics';
 import { BLOCKER_PERMISSION_DETAILS } from '@/features/app-blocker/blockerMeta';
 import { useReminders } from '@/features/notifications/useReminders';
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -31,7 +32,7 @@ import {
 import { useBlockerStore } from '@/store/blockerStore';
 import { useFocusStore } from '@/store/focusStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { formatCountdown } from '@/utils/date';
+import { formatCountdown, formatMinutesAsDuration } from '@/utils/date';
 
 export default function FocusHubScreen() {
   const palette = useAppTheme();
@@ -80,6 +81,7 @@ export default function FocusHubScreen() {
   const preferences = useSettingsStore((s) => s.preferences);
   const showToast = useSettingsStore((s) => s.showToast);
 
+  const { summary } = useAnalytics();
   const reminders = useReminders();
 
   const selectedCount = blockerSettings.selectedApps.filter((a) => a.selected).length;
@@ -101,9 +103,37 @@ export default function FocusHubScreen() {
       >
         <View style={styles.inner}>
           <AppHeader
-            title="Focus & Blocker"
-            subtitle="Configure sessions, app restrictions, and reminders."
+            title="Focus & Stats"
+            subtitle="Run deep-work sessions, review focus stats, and manage reminders."
           />
+
+          <Pressable
+            onPress={() => router.push('/(tabs)/profile')}
+            accessibilityLabel="View full focus analytics"
+            style={[
+              styles.statsStrip,
+              { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
+            ]}
+          >
+            <View style={[styles.statCell, { borderRightColor: palette.borderSubtle }]}>
+              <Text style={[Typography.h3, { color: palette.text }]}>
+                {formatMinutesAsDuration(summary?.todayFocusedMinutes ?? 0)}
+              </Text>
+              <Text style={[Typography.small, { color: palette.textMuted }]}>Today</Text>
+            </View>
+            <View style={[styles.statCell, { borderRightColor: palette.borderSubtle }]}>
+              <Text style={[Typography.h3, { color: palette.text }]}>
+                {formatMinutesAsDuration(summary?.weekFocusedMinutes ?? 0)}
+              </Text>
+              <Text style={[Typography.small, { color: palette.textMuted }]}>This week</Text>
+            </View>
+            <View style={styles.statLastCell}>
+              <Text style={[Typography.h3, { color: palette.accentMint }]}>
+                {summary?.currentStreakDays ?? 0}d
+              </Text>
+              <Text style={[Typography.small, { color: palette.textMuted }]}>Streak</Text>
+            </View>
+          </Pressable>
 
           {/* Session Entry Card */}
           <Card variant="elevated" style={styles.entryCard}>
@@ -499,6 +529,24 @@ const styles = StyleSheet.create({
   inner: {
     width: '100%',
     maxWidth: Layout.maxContentWidth,
+  },
+  statsStrip: {
+    flexDirection: 'row',
+    borderRadius: Radii.lg,
+    borderWidth: 1,
+    paddingVertical: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  statCell: {
+    flex: 1,
+    alignItems: 'center',
+    borderRightWidth: StyleSheet.hairlineWidth,
+    gap: 2,
+  },
+  statLastCell: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
   },
   entryCard: {
     gap: Spacing.lg,
