@@ -1,3 +1,5 @@
+import '@/global.css';
+
 import {
   Manrope_400Regular,
   Manrope_500Medium,
@@ -45,6 +47,17 @@ export default function RootLayout() {
       void ensureAndroidNotificationChannel();
     }
   }, [ready]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const styleId = 'procrastistop-hide-scrollbars';
+    if (document.getElementById(styleId)) return;
+    const styleEl = document.createElement('style');
+    styleEl.id = styleId;
+    styleEl.textContent =
+      '*{scrollbar-width:none;-ms-overflow-style:none;}*::-webkit-scrollbar{display:none;width:0;height:0;}';
+    document.head.appendChild(styleEl);
+  }, []);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
