@@ -3,16 +3,22 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppSelectionItem } from '@/components/blocker/AppSelectionItem';
+import { BlockerStatusCard } from '@/components/blocker/BlockerStatusCard';
+import { SimulatedBlockerModal } from '@/components/blocker/SimulatedBlockerModal';
 import { AppHeader } from '@/components/ui/AppHeader';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { Card } from '@/components/ui/Card';
 import { Divider } from '@/components/ui/Divider';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { ScreenBackground } from '@/components/ui/ScreenBackground';
+import { SecondaryButton } from '@/components/ui/SecondaryButton';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { Layout, Radii, Spacing, Typography } from '@/constants/theme';
+import { BLOCKER_PERMISSION_DETAILS } from '@/features/app-blocker/blockerMeta';
+import { useReminders } from '@/features/notifications/useReminders';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { useFocusTicker } from '@/hooks/useFocusTicker';
 import { useBlockerStore } from '@/store/blockerStore';
 import { useFocusStore } from '@/store/focusStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -25,14 +31,28 @@ export default function FocusHubScreen() {
   const activeSession = useFocusStore((s) => s.activeSession);
   const remainingSeconds = useFocusStore((s) => s.remainingSeconds);
 
+  useFocusTicker(() => {
+    router.push('/focus/completed');
+  });
+
   const blockerSettings = useBlockerStore((s) => s.settings);
+  const permissions = useBlockerStore((s) => s.permissions);
   const runtimeStatus = useBlockerStore((s) => s.runtimeStatus);
+  const demoBlockedAppModal = useBlockerStore((s) => s.demoBlockedAppModal);
   const toggleBlockerEnabled = useBlockerStore((s) => s.toggleBlockerEnabled);
   const toggleBlockDuringFocus = useBlockerStore((s) => s.toggleBlockDuringFocus);
   const toggleEmergencyExit = useBlockerStore((s) => s.toggleEmergencyExit);
   const toggleAppSelection = useBlockerStore((s) => s.toggleAppSelection);
+  const requestPermission = useBlockerStore((s) => s.requestPermission);
+  const cyclePermissionDemoState = useBlockerStore((s) => s.cyclePermissionDemoState);
+  const triggerSimulatedBlockedApp = useBlockerStore((s) => s.triggerSimulatedBlockedApp);
+  const dismissBlockedAppModal = useBlockerStore((s) => s.dismissBlockedAppModal);
 
   const preferences = useSettingsStore((s) => s.preferences);
+  const showToast = useSettingsStore((s) => s.showToast);
+
+  const reminders = useReminders();
+
   const selectedCount = blockerSettings.selectedApps.filter((a) => a.selected).length;
   const hasLiveSession =
     activeSession?.status === 'active' || activeSession?.status === 'paused';
@@ -55,6 +75,7 @@ export default function FocusHubScreen() {
             subtitle="Configure sessions, app restrictions, and reminders."
           />
 
+          {/* Session Entry Card */}
           <Card variant="elevated" style={styles.entryCard}>
             <View style={styles.entryHeader}>
               <View style={[styles.entryIcon, { backgroundColor: palette.sageTint }]}>
@@ -62,7 +83,11 @@ export default function FocusHubScreen() {
               </View>
               <View style={styles.entryCopy}>
                 <Text style={[Typography.eyebrow, { color: palette.accentMint }]}>
-                  {hasLiveSession ? 'Live session' : 'Focus timer'}
+                  {hasLiveSession
+                    ? activeSession?.status === 'paused'
+                      ? 'Paused session'
+                      : 'Active session'
+                    : 'Focus timer'}
                 </Text>
                 <Text style={[Typography.h3, { color: palette.text }]} numberOfLines={1}>
                   {hasLiveSession && activeSession
@@ -72,14 +97,26 @@ export default function FocusHubScreen() {
               </View>
             </View>
 
-            <PrimaryButton
-              title={hasLiveSession ? 'Open Active Session' : 'Configure & Start Focus'}
-              icon="play"
-              tone="energy"
-              onPress={() => router.push(hasLiveSession ? '/focus/active' : '/focus/setup')}
-            />
+            <View style={styles.entryActions}>
+              {hasLiveSession ? (
+                <PrimaryButton
+                  title="Open Active Session"
+                  icon="play"
+                  tone="energy"
+                  onPress={() => router.push('/focus/active')}
+                />
+              ) : (
+                <PrimaryButton
+                  title="Configure & Start Focus"
+                  icon="play"
+                  tone="energy"
+                  onPress={() => router.push('/focus/setup')}
+                />
+              )}
+            </View>
           </Card>
 
+          {/* Simulated App Blocker Section */}
           <View style={styles.section}>
             <SectionHeader
               title="Android App Blocker"
@@ -96,7 +133,8 @@ export default function FocusHubScreen() {
               <AppIcon name="shield" size={18} color={palette.warningText} />
               <Text style={[Typography.small, { color: palette.textSecondary, flex: 1 }]}>
                 Expo JavaScript cannot block other Android apps at the OS level. This module
-                persists your blocked-app selections and simulates permissions before Stage 2.
+                persists your blocked-app selections and simulates Android permissions and the
+                interception overlay before Stage 2 Kotlin integration.
               </Text>
             </View>
 
@@ -115,11 +153,16 @@ export default function FocusHubScreen() {
                   onValueChange={(v) => void toggleBlockerEnabled(v)}
                 />
               </View>
+
               <Divider />
+
               <View style={styles.switchRow}>
                 <View style={styles.switchCopy}>
                   <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
                     Restrict automatically during focus
+                  </Text>
+                  <Text style={[Typography.small, { color: palette.textMuted }]}>
+                    Activates when a focus session starts
                   </Text>
                 </View>
                 <ToggleSwitch
@@ -128,11 +171,16 @@ export default function FocusHubScreen() {
                   onValueChange={(v) => void toggleBlockDuringFocus(v)}
                 />
               </View>
+
               <Divider />
+
               <View style={styles.switchRow}>
                 <View style={styles.switchCopy}>
                   <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
                     Allow emergency exit
+                  </Text>
+                  <Text style={[Typography.small, { color: palette.textMuted }]}>
+                    Include an override option on the shield card
                   </Text>
                 </View>
                 <ToggleSwitch
@@ -160,26 +208,219 @@ export default function FocusHubScreen() {
                   ))}
                 </View>
               </Card>
+
+              <SecondaryButton
+                title="Preview Simulated Blocker Overlay"
+                icon="shield"
+                onPress={() => void triggerSimulatedBlockedApp()}
+                fullWidth
+                style={styles.previewOverlayBtn}
+              />
             </View>
+
+            <View style={styles.subSection}>
+              <Text style={[Typography.label, { color: palette.textSecondary, marginBottom: 8 }]}>
+                Android Permission Status (Simulated)
+              </Text>
+              <View style={styles.permStack}>
+                {BLOCKER_PERMISSION_DETAILS.map((meta) => (
+                  <BlockerStatusCard
+                    key={meta.kind}
+                    title={meta.title}
+                    description={meta.description}
+                    settingPath={meta.androidSettingLabel}
+                    status={permissions[meta.kind]}
+                    onRequest={() => void requestPermission(meta.kind)}
+                    onCycleDemoState={() => void cyclePermissionDemoState(meta.kind)}
+                  />
+                ))}
+              </View>
+            </View>
+          </View>
+
+          {/* Simulated Notification & Reminder Previews */}
+          <View style={styles.section}>
+            <SectionHeader
+              title="Reminder Previews"
+              eyebrow="Simulated Scheduling"
+              actionLabel="Test toast"
+              onActionPress={() =>
+                showToast(
+                  preferences.notificationsEnabled
+                    ? `Reminder preview: Focus block starts in ${preferences.remindBeforeSessionMinutes} min.`
+                    : 'Enable notifications in Profile to receive reminders.',
+                  preferences.notificationsEnabled ? 'info' : 'warning',
+                )
+              }
+            />
+            <Card>
+              {reminders.length > 0 ? (
+                <View style={styles.remList}>
+                  {reminders.map((rem, idx) => (
+                    <View
+                      key={rem.id}
+                      style={[
+                        styles.remRow,
+                        idx < reminders.length - 1 && {
+                          borderBottomWidth: StyleSheet.hairlineWidth,
+                          borderBottomColor: palette.borderSubtle,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.remBadge,
+                          {
+                            backgroundColor:
+                              rem.kind === 'overdue'
+                                ? palette.dangerSoft
+                                : rem.kind === 'deadline'
+                                  ? palette.warningSoft
+                                  : palette.sageTint,
+                          },
+                        ]}
+                      >
+                        <AppIcon
+                          name={rem.kind === 'session' ? 'bell' : 'clock'}
+                          size={16}
+                          color={
+                            rem.kind === 'overdue'
+                              ? palette.dangerText
+                              : rem.kind === 'deadline'
+                                ? palette.warningText
+                                : palette.accentMint
+                          }
+                        />
+                      </View>
+                      <View style={styles.remCopy}>
+                        <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
+                          {rem.title}
+                        </Text>
+                        <Text style={[Typography.caption, { color: palette.textMuted }]}>
+                          {rem.body}
+                        </Text>
+                      </View>
+                      <Text style={[Typography.small, { color: palette.accentMint }]}>
+                        {rem.scheduledLabel}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={[Typography.caption, { color: palette.textMuted }]}>
+                  Reminders are currently disabled or no urgent tasks need alerts.
+                </Text>
+              )}
+            </Card>
           </View>
         </View>
       </ScrollView>
+
+      <SimulatedBlockerModal
+        visible={Boolean(demoBlockedAppModal?.visible)}
+        appName={demoBlockedAppModal?.appName ?? 'Instagram'}
+        packageName={demoBlockedAppModal?.packageName ?? 'com.instagram.android'}
+        remainingSeconds={
+          hasLiveSession ? remainingSeconds : preferences.focusDefaultMinutes * 60
+        }
+        taskTitle={activeSession?.taskTitleSnapshot ?? 'Sample Focus Session'}
+        allowEmergencyExit={blockerSettings.allowEmergencyExit}
+        onReturnToFocus={dismissBlockedAppModal}
+        onEmergencyExit={() => {
+          dismissBlockedAppModal();
+          showToast('Emergency exit simulated — restriction paused.', 'warning');
+        }}
+      />
     </ScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { paddingHorizontal: Spacing.xl, alignItems: 'center' },
-  inner: { width: '100%', maxWidth: Layout.maxContentWidth },
-  entryCard: { gap: Spacing.lg },
-  entryHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  entryIcon: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  entryCopy: { flex: 1, gap: 2 },
-  section: { marginTop: Spacing.xxl },
-  honestBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm, padding: Spacing.md, borderRadius: Radii.md, borderWidth: 1, marginBottom: Spacing.md },
-  controlsCard: { gap: Spacing.md },
-  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md },
-  switchCopy: { flex: 1, gap: 2 },
-  subSection: { marginTop: Spacing.lg },
-  appListPad: { paddingHorizontal: Spacing.lg },
+  scrollContent: {
+    paddingHorizontal: Spacing.xl,
+    alignItems: 'center',
+  },
+  inner: {
+    width: '100%',
+    maxWidth: Layout.maxContentWidth,
+  },
+  entryCard: {
+    gap: Spacing.lg,
+  },
+  entryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  entryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  entryCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  entryActions: {
+    width: '100%',
+  },
+  section: {
+    marginTop: Spacing.xxl,
+  },
+  honestBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  controlsCard: {
+    gap: Spacing.md,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  switchCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  subSection: {
+    marginTop: Spacing.lg,
+  },
+  appListPad: {
+    paddingHorizontal: Spacing.lg,
+  },
+  previewOverlayBtn: {
+    marginTop: Spacing.md,
+  },
+  permStack: {
+    gap: Spacing.md,
+  },
+  remList: {
+    gap: Spacing.xs,
+  },
+  remRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+  },
+  remBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  remCopy: {
+    flex: 1,
+    gap: 2,
+  },
 });
