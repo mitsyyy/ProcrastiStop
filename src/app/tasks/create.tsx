@@ -12,9 +12,13 @@ export default function CreateTaskScreen() {
     await createTask({
       ...values,
       status: 'pending',
+      lastAutoStartedDate: null,
       completedAt: null,
     });
-    showToast('Task created and saved locally.', 'success');
+    showToast(
+      `Task scheduled with 24h buffer and ${values.dailyReminderCount} daily nudges.`,
+      'success',
+    );
     router.back();
   };
 
