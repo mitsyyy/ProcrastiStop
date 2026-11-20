@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { Radii, Spacing, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -12,59 +12,76 @@ interface DateTimePickerProps {
   label: string;
   value: string | null;
   onChange: (isoOrNull: string | null) => void;
+  required?: boolean;
+  error?: string;
   containerStyle?: ViewStyle;
 }
 
-function getPresetDate(daysAhead: number, hour: number, minute: number): Date {
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const;
+
+function getDefaultDeadlineDate(): Date {
   const date = new Date();
-  date.setDate(date.getDate() + daysAhead);
-  date.setHours(hour, minute, 0, 0);
+  date.setDate(date.getDate() + 2);
+  date.setHours(19, 0, 0, 0);
   return date;
+}
+
+function buildCalendarCells(year: number, month: number): (number | null)[] {
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  return cells;
 }
 
 export function DateTimePicker({
   label,
   value,
   onChange,
+  required = false,
+  error,
   containerStyle,
 }: DateTimePickerProps) {
   const palette = useAppTheme();
   const [open, setOpen] = useState(false);
   const [draftDate, setDraftDate] = useState<Date>(() =>
-    value ? new Date(value) : getPresetDate(0, 20, 0),
+    value && !Number.isNaN(new Date(value).getTime()) ? new Date(value) : getDefaultDeadlineDate(),
   );
+  const [viewYear, setViewYear] = useState(() => draftDate.getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => draftDate.getMonth());
 
   const openModal = () => {
-    const initial = value && !Number.isNaN(new Date(value).getTime())
-      ? new Date(value)
-      : getPresetDate(0, 20, 0);
+    const initial =
+      value && !Number.isNaN(new Date(value).getTime())
+        ? new Date(value)
+        : getDefaultDeadlineDate();
     setDraftDate(initial);
+    setViewYear(initial.getFullYear());
+    setViewMonth(initial.getMonth());
     setOpen(true);
   };
 
-  const adjustDays = (delta: number) => {
+  const shiftMonth = (delta: number) => {
+    const next = new Date(viewYear, viewMonth + delta, 1);
+    setViewYear(next.getFullYear());
+    setViewMonth(next.getMonth());
+  };
+
+  const selectCalendarDay = (day: number) => {
     setDraftDate((prev) => {
       const next = new Date(prev);
-      next.setDate(next.getDate() + delta);
+      next.setFullYear(viewYear, viewMonth, day);
       return next;
     });
   };
 
-  const adjustHours = (delta: number) => {
-    setDraftDate((prev) => {
-      const next = new Date(prev);
-      next.setHours(next.getHours() + delta);
-      return next;
-    });
-  };
-
-  const adjustMinutes = (delta: number) => {
-    setDraftDate((prev) => {
-      const next = new Date(prev);
-      next.setMinutes(next.getMinutes() + delta);
-      return next;
-    });
-  };
+  const today = new Date();
+  const cells = buildCalendarCells(viewYear, viewMonth);
+  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString([], {
+    month: 'long',
+    year: 'numeric',
+  });
 
   return (
     <View style={[styles.wrapper, containerStyle]}>
@@ -72,9 +89,9 @@ export function DateTimePicker({
         <Text style={[Typography.caption, styles.label, { color: palette.textSecondary }]}>
           {label}
         </Text>
-        {value ? (
+        {!required && value ? (
           <Pressable onPress={() => onChange(null)} hitSlop={8}>
-            <Text style={[Typography.small, { color: palette.accentMint }]}>Clear deadline</Text>
+            <Text style={[Typography.small, { color: palette.accentMint }]}>Clear</Text>
           </Pressable>
         ) : null}
       </View>
@@ -83,22 +100,33 @@ export function DateTimePicker({
         onPress={openModal}
         style={[
           styles.trigger,
-          { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
+          {
+            backgroundColor: palette.surfaceGlass,
+            borderColor: error ? palette.danger : palette.border,
+          },
         ]}
       >
-        <AppIcon name="calendar" size={18} color={palette.textMuted} />
+        <AppIcon
+          name="calendar"
+          size={18}
+          color={error ? palette.dangerText : palette.accentMint}
+        />
         <Text
           style={[
             Typography.body,
             styles.triggerText,
-            { color: value ? palette.text : palette.textMuted },
+            { color: value ? palette.text : palette.placeholder },
           ]}
           numberOfLines={1}
         >
-          {value ? formatFullDateTime(value) : 'No deadline (flexible schedule)'}
+          {value ? formatFullDateTime(value) : 'Select exact date & time'}
         </Text>
         <AppIcon name="chevron" size={16} color={palette.textMuted} />
       </Pressable>
+
+      {error ? (
+        <Text style={[Typography.small, { color: palette.dangerText }]}>{error}</Text>
+      ) : null}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable
@@ -113,99 +141,134 @@ export function DateTimePicker({
             ]}
           >
             <View style={styles.sheetHeader}>
-              <Text style={[Typography.h3, { color: palette.text }]}>Select Deadline</Text>
+              <Text style={[Typography.h3, { color: palette.text }]}>Select Date & Time</Text>
               <Pressable onPress={() => setOpen(false)} hitSlop={8}>
                 <AppIcon name="close" size={20} color={palette.textMuted} />
               </Pressable>
             </View>
 
-            <View style={styles.presetRow}>
-              <Pressable
-                onPress={() => setDraftDate(getPresetDate(0, 20, 0))}
-                style={[
-                  styles.presetChip,
-                  { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
-                ]}
-              >
-                <Text style={[Typography.small, { color: palette.text }]}>Today 8 PM</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setDraftDate(getPresetDate(1, 10, 0))}
-                style={[
-                  styles.presetChip,
-                  { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
-                ]}
-              >
-                <Text style={[Typography.small, { color: palette.text }]}>Tomorrow 10 AM</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setDraftDate(getPresetDate(3, 18, 0))}
-                style={[
-                  styles.presetChip,
-                  { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
-                ]}
-              >
-                <Text style={[Typography.small, { color: palette.text }]}>In 3 days</Text>
-              </Pressable>
-            </View>
-
-            <View
-              style={[
-                styles.previewPanel,
-                { backgroundColor: palette.sageTint, borderColor: palette.border },
-              ]}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.sheetScroll}
             >
-              <Text style={[Typography.small, { color: palette.textMuted }]}>Selected deadline</Text>
-              <Text style={[Typography.bodySemiBold, { color: palette.text, marginTop: 2 }]}>
-                {formatFullDateTime(draftDate.toISOString())}
-              </Text>
-            </View>
-
-            <View style={styles.stepperGrid}>
-              <View style={[styles.stepperCard, { borderColor: palette.border }]}>
-                <Text style={[Typography.small, { color: palette.textMuted }]}>Day</Text>
-                <View style={styles.stepperControls}>
-                  <Pressable onPress={() => adjustDays(-1)} style={styles.stepBtn}>
-                    <Text style={[Typography.h3, { color: palette.text }]}>-</Text>
-                  </Pressable>
-                  <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
-                    {draftDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                  </Text>
-                  <Pressable onPress={() => adjustDays(1)} style={styles.stepBtn}>
-                    <Text style={[Typography.h3, { color: palette.text }]}>+</Text>
-                  </Pressable>
-                </View>
+              <View
+                style={[
+                  styles.previewPanel,
+                  { backgroundColor: palette.sageTint, borderColor: palette.border },
+                ]}
+              >
+                <Text style={[Typography.small, { color: palette.textMuted }]}>
+                  Selected deadline
+                </Text>
+                <Text style={[Typography.bodySemiBold, { color: palette.text, marginTop: 2 }]}>
+                  {formatFullDateTime(draftDate.toISOString())}
+                </Text>
               </View>
 
-              <View style={[styles.stepperCard, { borderColor: palette.border }]}>
-                <Text style={[Typography.small, { color: palette.textMuted }]}>Hour / Min</Text>
-                <View style={styles.stepperControls}>
-                  <Pressable onPress={() => adjustHours(-1)} style={styles.stepBtn}>
-                    <Text style={[Typography.h3, { color: palette.text }]}>-</Text>
+              {/* Interactive Calendar Grid */}
+              <View
+                style={[
+                  styles.calendarCard,
+                  { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
+                ]}
+              >
+                <View style={styles.monthHeader}>
+                  <Pressable
+                    onPress={() => shiftMonth(-1)}
+                    style={[styles.navArrow, { backgroundColor: palette.surfaceMuted }]}
+                  >
+                    <AppIcon name="arrow" size={16} color={palette.text} />
                   </Pressable>
                   <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
-                    {String(draftDate.getHours()).padStart(2, '0')}:
-                    {String(draftDate.getMinutes()).padStart(2, '0')}
+                    {monthLabel}
                   </Text>
-                  <Pressable onPress={() => adjustHours(1)} style={styles.stepBtn}>
-                    <Text style={[Typography.h3, { color: palette.text }]}>+</Text>
-                  </Pressable>
-                  <Pressable onPress={() => adjustMinutes(15)} style={styles.minBtn}>
-                    <Text style={[Typography.small, { color: palette.accentMint }]}>+15m</Text>
+                  <Pressable
+                    onPress={() => shiftMonth(1)}
+                    style={[styles.navArrow, { backgroundColor: palette.surfaceMuted }]}
+                  >
+                    <AppIcon name="chevron" size={16} color={palette.text} />
                   </Pressable>
                 </View>
+
+                <View style={styles.weekRow}>
+                  {WEEKDAYS.map((w, idx) => (
+                    <Text
+                      key={`${w}-${idx}`}
+                      style={[Typography.small, styles.weekLabel, { color: palette.textMuted }]}
+                    >
+                      {w}
+                    </Text>
+                  ))}
+                </View>
+
+                <View style={styles.daysGrid}>
+                  {cells.map((day, idx) => {
+                    if (day === null) {
+                      return <View key={`empty-${idx}`} style={styles.dayCell} />;
+                    }
+                    const isSelected =
+                      draftDate.getFullYear() === viewYear &&
+                      draftDate.getMonth() === viewMonth &&
+                      draftDate.getDate() === day;
+                    const isToday =
+                      today.getFullYear() === viewYear &&
+                      today.getMonth() === viewMonth &&
+                      today.getDate() === day;
+
+                    return (
+                      <Pressable
+                        key={`day-${day}`}
+                        onPress={() => selectCalendarDay(day)}
+                        style={[
+                          styles.dayCell,
+                          isSelected && { backgroundColor: palette.primary },
+                          !isSelected &&
+                            isToday && {
+                              borderWidth: 1,
+                              borderColor: palette.accentMint,
+                            },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            Typography.caption,
+                            {
+                              color: isSelected
+                                ? '#ffffff'
+                                : isToday
+                                  ? palette.accentMint
+                                  : palette.text,
+                              fontWeight: isSelected || isToday ? '700' : '500',
+                            },
+                          ]}
+                        >
+                          {day}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
+            </ScrollView>
 
             <View style={styles.modalActions}>
-              <SecondaryButton
-                title="No deadline"
-                onPress={() => {
-                  onChange(null);
-                  setOpen(false);
-                }}
-                style={styles.flexOne}
-              />
+              {!required ? (
+                <SecondaryButton
+                  title="Clear"
+                  onPress={() => {
+                    onChange(null);
+                    setOpen(false);
+                  }}
+                  style={styles.flexOne}
+                />
+              ) : (
+                <SecondaryButton
+                  title="Cancel"
+                  onPress={() => setOpen(false)}
+                  style={styles.flexOne}
+                />
+              )}
               <PrimaryButton
                 title="Apply"
                 onPress={() => {
@@ -224,17 +287,9 @@ export function DateTimePicker({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    gap: 6,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  label: {
-    fontWeight: '600',
-  },
+  wrapper: { gap: 6 },
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  label: { fontWeight: '600' },
   trigger: {
     minHeight: 50,
     borderRadius: Radii.md,
@@ -244,77 +299,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.sm + 2,
   },
-  triggerText: {
-    flex: 1,
-  },
-  backdrop: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: Spacing.xl,
-  },
+  triggerText: { flex: 1 },
+  backdrop: { flex: 1, justifyContent: 'center', padding: Spacing.lg },
   sheet: {
     borderRadius: Radii.xl,
     borderWidth: 1,
     padding: Spacing.lg,
     gap: Spacing.md,
+    maxHeight: '88%',
   },
-  sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  presetRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  presetChip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sheetScroll: { gap: Spacing.md },
+  previewPanel: { padding: Spacing.md, borderRadius: Radii.md, borderWidth: 1 },
+  calendarCard: { borderRadius: Radii.lg, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm },
+  monthHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  navArrow: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  weekRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  weekLabel: { width: '14.28%', textAlign: 'center', fontWeight: '700' },
+  daysGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  dayCell: {
+    width: '14.28%',
+    aspectRatio: 1,
     borderRadius: Radii.full,
-    borderWidth: 1,
-  },
-  previewPanel: {
-    padding: Spacing.md,
-    borderRadius: Radii.md,
-    borderWidth: 1,
-  },
-  stepperGrid: {
-    gap: Spacing.sm,
-  },
-  stepperCard: {
-    padding: Spacing.md,
-    borderRadius: Radii.md,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  stepperControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  stepBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(128,128,128,0.14)',
   },
-  minBtn: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    borderRadius: Radii.xs,
-    backgroundColor: 'rgba(85,221,160,0.14)',
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  flexOne: {
-    flex: 1,
-  },
+  modalActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xs },
+  flexOne: { flex: 1 },
 });
