@@ -103,6 +103,7 @@ export default function FocusSetupScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           <AppHeader
@@ -360,7 +361,7 @@ export default function FocusSetupScreen() {
               </Pressable>
             </View>
 
-            <ScrollView style={styles.modalScroll}>
+            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}>
               <Pressable
                 onPress={() => {
                   setSelectedTaskId(null);

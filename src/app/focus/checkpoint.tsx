@@ -96,6 +96,7 @@ export default function CameraCheckpointScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           {/* Top Bar */}

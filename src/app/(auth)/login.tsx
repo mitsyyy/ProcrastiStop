@@ -78,6 +78,8 @@ export default function LoginScreen() {
             },
           ]}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
         >
           <View style={styles.inner}>
             <View style={styles.topBar}>

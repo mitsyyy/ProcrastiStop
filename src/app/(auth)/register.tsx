@@ -85,6 +85,8 @@ export default function RegisterScreen() {
             },
           ]}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
         >
           <View style={styles.inner}>
             <View style={styles.topBar}>

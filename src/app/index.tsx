@@ -115,6 +115,8 @@ export default function IndexGateScreen() {
             paddingBottom: insets.bottom + Spacing.xxl,
           },
         ]}
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           <View style={styles.topRow}>

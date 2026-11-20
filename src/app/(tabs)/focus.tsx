@@ -97,6 +97,7 @@ export default function FocusHubScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           <AppHeader

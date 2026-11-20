@@ -107,6 +107,7 @@ export default function HomeScreen() {
           },
         ]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
       >
         <View style={styles.inner}>
           {/* Header */}
@@ -466,7 +467,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            <ScrollView style={styles.reminderScroll}>
+            <ScrollView style={styles.reminderScroll} showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false}>
               {reminders.length > 0 ? (
                 reminders.map((rem) => {
                   const toneColor =
