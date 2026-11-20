@@ -6,7 +6,12 @@ import {
   computeRemainingSeconds,
   sessionPersistence,
 } from '@/services/local/sessionPersistence';
+import {
+  cancelScheduledNotification,
+  scheduleFocusCompletionNotification,
+} from '@/services/notifications/notificationService';
 import { useBlockerStore } from '@/store/blockerStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import type { CheckpointRecord, FocusSession } from '@/types/focus';
 
 interface StartSessionParams {
@@ -23,6 +28,7 @@ interface FocusState {
   endTimestampMs: number | null;
   remainingSeconds: number;
   checkpointTriggered: boolean;
+  completionNotificationId: string | null;
   lastCompletedSession: FocusSession | null;
   loading: boolean;
   error: string | null;
@@ -52,6 +58,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
   endTimestampMs: null,
   remainingSeconds: 0,
   checkpointTriggered: false,
+  completionNotificationId: null,
   lastCompletedSession: null,
   loading: false,
   error: null,
@@ -73,19 +80,25 @@ export const useFocusStore = create<FocusState>((set, get) => ({
           endTimestampMs: null,
           remainingSeconds: 0,
           checkpointTriggered: false,
+          completionNotificationId: null,
           loading: false,
         });
         await useBlockerStore.getState().syncWithSession(null);
         return;
       }
 
-      const { session, endTimestampMs, remainingSeconds: savedRemaining, checkpointTriggered } =
-        persisted;
+      const {
+        session,
+        endTimestampMs,
+        remainingSeconds: savedRemaining,
+        checkpointTriggered,
+        completionNotificationId = null,
+      } = persisted;
 
       if (session.status === 'active' && endTimestampMs !== null) {
         const recalculated = computeRemainingSeconds(endTimestampMs, savedRemaining);
         if (recalculated <= 0) {
-          // Session elapsed while backgrounded/closed — finalize immediately
+          await cancelScheduledNotification(completionNotificationId);
           const completedSession = await focusRepository.updateSession(session.id, {
             status: 'completed',
             endedAt: new Date(endTimestampMs).toISOString(),
@@ -101,6 +114,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
             endTimestampMs: null,
             remainingSeconds: 0,
             checkpointTriggered: false,
+            completionNotificationId: null,
             lastCompletedSession: completedSession,
             loading: false,
           });
@@ -119,13 +133,13 @@ export const useFocusStore = create<FocusState>((set, get) => ({
           endTimestampMs,
           remainingSeconds: recalculated,
           checkpointTriggered,
+          completionNotificationId,
           loading: false,
         });
         await useBlockerStore.getState().syncWithSession('active');
         return;
       }
 
-      // Paused or in checkpoint state: keep remainingSeconds untouched
       set({
         sessions,
         checkpoints,
@@ -133,6 +147,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
         endTimestampMs: null,
         remainingSeconds: savedRemaining,
         checkpointTriggered,
+        completionNotificationId,
         loading: false,
       });
       await useBlockerStore.getState().syncWithSession(session.status);
@@ -155,7 +170,6 @@ export const useFocusStore = create<FocusState>((set, get) => ({
     const totalSeconds = plannedDurationMinutes * 60;
     const endTimestampMs = nowMs + totalSeconds * 1000;
 
-    // Lifecycle: planned -> active
     const planned = await focusRepository.createSession({
       taskId,
       taskTitleSnapshot: taskTitleSnapshot || 'Open focus session',
@@ -174,12 +188,18 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       status: 'active',
     });
 
+    const notificationsEnabled = useSettingsStore.getState().preferences.notificationsEnabled;
+    const completionNotificationId = notificationsEnabled
+      ? await scheduleFocusCompletionNotification(active.taskTitleSnapshot, endTimestampMs)
+      : null;
+
     await sessionPersistence.save({
       session: active,
       endTimestampMs,
       remainingSeconds: totalSeconds,
       lastSavedAtMs: nowMs,
       checkpointTriggered: false,
+      completionNotificationId,
     });
 
     set((state) => ({
@@ -188,6 +208,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       endTimestampMs,
       remainingSeconds: totalSeconds,
       checkpointTriggered: false,
+      completionNotificationId,
       lastCompletedSession: null,
     }));
 
@@ -221,8 +242,16 @@ export const useFocusStore = create<FocusState>((set, get) => ({
   },
 
   pauseSession: async () => {
-    const { activeSession, endTimestampMs, remainingSeconds, checkpointTriggered } = get();
+    const {
+      activeSession,
+      endTimestampMs,
+      remainingSeconds,
+      checkpointTriggered,
+      completionNotificationId,
+    } = get();
     if (!activeSession || activeSession.status !== 'active') return;
+
+    await cancelScheduledNotification(completionNotificationId);
 
     const nowMs = Date.now();
     const preciseRemaining = computeRemainingSeconds(endTimestampMs, remainingSeconds, nowMs);
@@ -240,12 +269,14 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       remainingSeconds: preciseRemaining,
       lastSavedAtMs: nowMs,
       checkpointTriggered,
+      completionNotificationId: null,
     });
 
     set((state) => ({
       activeSession: updated,
       endTimestampMs: null,
       remainingSeconds: preciseRemaining,
+      completionNotificationId: null,
       sessions: state.sessions.map((s) => (s.id === updated.id ? updated : s)),
     }));
 
@@ -254,7 +285,10 @@ export const useFocusStore = create<FocusState>((set, get) => ({
 
   resumeSession: async () => {
     const { activeSession, remainingSeconds, checkpointTriggered } = get();
-    if (!activeSession || (activeSession.status !== 'paused' && activeSession.status !== 'checkpoint')) {
+    if (
+      !activeSession ||
+      (activeSession.status !== 'paused' && activeSession.status !== 'checkpoint')
+    ) {
       return;
     }
 
@@ -266,18 +300,25 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       status: 'active',
     });
 
+    const notificationsEnabled = useSettingsStore.getState().preferences.notificationsEnabled;
+    const completionNotificationId = notificationsEnabled
+      ? await scheduleFocusCompletionNotification(updated.taskTitleSnapshot, endTimestampMs)
+      : null;
+
     await sessionPersistence.save({
       session: updated,
       endTimestampMs,
       remainingSeconds: safeRemaining,
       lastSavedAtMs: nowMs,
       checkpointTriggered,
+      completionNotificationId,
     });
 
     set((state) => ({
       activeSession: updated,
       endTimestampMs,
       remainingSeconds: safeRemaining,
+      completionNotificationId,
       sessions: state.sessions.map((s) => (s.id === updated.id ? updated : s)),
     }));
 
@@ -285,8 +326,10 @@ export const useFocusStore = create<FocusState>((set, get) => ({
   },
 
   enterCheckpoint: async () => {
-    const { activeSession, endTimestampMs, remainingSeconds } = get();
+    const { activeSession, endTimestampMs, remainingSeconds, completionNotificationId } = get();
     if (!activeSession) return;
+
+    await cancelScheduledNotification(completionNotificationId);
 
     const nowMs = Date.now();
     const preciseRemaining =
@@ -306,6 +349,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       remainingSeconds: preciseRemaining,
       lastSavedAtMs: nowMs,
       checkpointTriggered: true,
+      completionNotificationId: null,
     });
 
     set((state) => ({
@@ -313,6 +357,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       endTimestampMs: null,
       remainingSeconds: preciseRemaining,
       checkpointTriggered: true,
+      completionNotificationId: null,
       sessions: state.sessions.map((s) => (s.id === updated.id ? updated : s)),
     }));
 
@@ -320,7 +365,8 @@ export const useFocusStore = create<FocusState>((set, get) => ({
   },
 
   recordCheckpointResult: async ({ detectedObjects, verificationResult, confidence }) => {
-    const { activeSession, remainingSeconds, checkpointTriggered } = get();
+    const { activeSession, remainingSeconds, checkpointTriggered, completionNotificationId } =
+      get();
     if (!activeSession) return null;
 
     const record = await focusRepository.saveCheckpoint({
@@ -344,6 +390,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       remainingSeconds,
       lastSavedAtMs: Date.now(),
       checkpointTriggered,
+      completionNotificationId,
     });
 
     set((state) => ({
@@ -364,7 +411,13 @@ export const useFocusStore = create<FocusState>((set, get) => ({
   },
 
   recordInterruption: async () => {
-    const { activeSession, endTimestampMs, remainingSeconds, checkpointTriggered } = get();
+    const {
+      activeSession,
+      endTimestampMs,
+      remainingSeconds,
+      checkpointTriggered,
+      completionNotificationId,
+    } = get();
     if (!activeSession) return;
 
     const updated = await focusRepository.updateSession(activeSession.id, {
@@ -377,6 +430,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       remainingSeconds,
       lastSavedAtMs: Date.now(),
       checkpointTriggered,
+      completionNotificationId,
     });
 
     set((state) => ({
@@ -386,8 +440,10 @@ export const useFocusStore = create<FocusState>((set, get) => ({
   },
 
   completeSession: async () => {
-    const { activeSession, endTimestampMs, remainingSeconds } = get();
+    const { activeSession, endTimestampMs, remainingSeconds, completionNotificationId } = get();
     if (!activeSession) return null;
+
+    await cancelScheduledNotification(completionNotificationId);
 
     const nowMs = Date.now();
     const preciseRemaining =
@@ -411,6 +467,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       endTimestampMs: null,
       remainingSeconds: 0,
       checkpointTriggered: false,
+      completionNotificationId: null,
       lastCompletedSession: completed,
     }));
 
@@ -418,8 +475,10 @@ export const useFocusStore = create<FocusState>((set, get) => ({
   },
 
   cancelSession: async () => {
-    const { activeSession, endTimestampMs, remainingSeconds } = get();
+    const { activeSession, endTimestampMs, remainingSeconds, completionNotificationId } = get();
     if (!activeSession) return null;
+
+    await cancelScheduledNotification(completionNotificationId);
 
     const nowMs = Date.now();
     const preciseRemaining =
@@ -443,6 +502,7 @@ export const useFocusStore = create<FocusState>((set, get) => ({
       endTimestampMs: null,
       remainingSeconds: 0,
       checkpointTriggered: false,
+      completionNotificationId: null,
       lastCompletedSession: cancelled,
     }));
 
