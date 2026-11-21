@@ -46,7 +46,9 @@ function FloatingTabBar({ state, descriptors, emitter, navigateToTab }: TabBarPr
     };
 
     const activeBadgeBg =
-      palette.mode === 'dark' ? 'rgba(62, 207, 137, 0.16)' : palette.accentMintSoft;
+      palette.mode === 'dark' ? 'rgba(62, 207, 137, 0.18)' : palette.accentMintSoft;
+    const pressedBadgeBg =
+      palette.mode === 'dark' ? 'rgba(62, 207, 137, 0.12)' : 'rgba(49, 91, 70, 0.1)';
     const iconColor = isFocused
       ? palette.mode === 'dark'
         ? '#55dda0'
@@ -56,18 +58,18 @@ function FloatingTabBar({ state, descriptors, emitter, navigateToTab }: TabBarPr
         : palette.textMuted;
 
     return (
-      <Pressable
-        key={route.key}
-        accessibilityRole="button"
-        accessibilityState={isFocused ? { selected: true } : {}}
-        accessibilityLabel={options.tabBarAccessibilityLabel ?? meta.label}
-        onPress={onPress}
-        style={styles.tabBtn}
-      >
-        <View
-          style={[
+      <View key={route.key} style={styles.tabSlot}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={isFocused ? { selected: true } : {}}
+          accessibilityLabel={options.tabBarAccessibilityLabel ?? meta.label}
+          onPress={onPress}
+          android_ripple={{ color: pressedBadgeBg, borderless: false, radius: 24 }}
+          style={({ pressed }) => [
             styles.iconCircle,
             isFocused && { backgroundColor: activeBadgeBg },
+            !isFocused && pressed && { backgroundColor: pressedBadgeBg },
+            pressed && styles.tabPressed,
           ]}
         >
           <AppIcon name={meta.icon} size={22} color={iconColor} strokeWidth={2} />
@@ -79,8 +81,8 @@ function FloatingTabBar({ state, descriptors, emitter, navigateToTab }: TabBarPr
               ]}
             />
           ) : null}
-        </View>
-      </Pressable>
+        </Pressable>
+      </View>
     );
   };
 
@@ -209,7 +211,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'visible',
   },
-  tabBtn: {
+  tabSlot: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -218,10 +220,14 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: Radii.full,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+  },
+  tabPressed: {
+    transform: [{ scale: 0.94 }],
   },
   liveDot: {
     position: 'absolute',
@@ -229,7 +235,7 @@ const styles = StyleSheet.create({
     right: 9,
     width: 9,
     height: 9,
-    borderRadius: 5,
+    borderRadius: Radii.full,
     backgroundColor: '#ff7a1a',
     borderWidth: 1.5,
   },
@@ -237,6 +243,7 @@ const styles = StyleSheet.create({
     marginTop: -24,
     width: 74,
     height: 74,
+    borderRadius: Radii.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -247,13 +254,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 76,
     height: 76,
-    borderRadius: 38,
+    borderRadius: Radii.full,
     top: 2,
   },
   fabCutoutRing: {
     width: 68,
     height: 68,
-    borderRadius: 34,
+    borderRadius: Radii.full,
     borderWidth: 5,
     alignItems: 'center',
     justifyContent: 'center',
@@ -267,7 +274,7 @@ const styles = StyleSheet.create({
   fabGradient: {
     width: 58,
     height: 58,
-    borderRadius: 29,
+    borderRadius: Radii.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
