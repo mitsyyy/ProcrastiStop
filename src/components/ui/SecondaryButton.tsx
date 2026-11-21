@@ -11,6 +11,7 @@ interface SecondaryButtonProps {
   variant?: 'outline' | 'ghost' | 'dangerOutline';
   disabled?: boolean;
   fullWidth?: boolean;
+  compact?: boolean;
   style?: ViewStyle;
 }
 
@@ -21,6 +22,7 @@ export function SecondaryButton({
   variant = 'outline',
   disabled = false,
   fullWidth = false,
+  compact = false,
   style,
 }: SecondaryButtonProps) {
   const palette = useAppTheme();
@@ -54,6 +56,7 @@ export function SecondaryButton({
       accessibilityLabel={title}
       style={({ pressed }) => [
         styles.button,
+        compact && styles.compactButton,
         fullWidth && styles.fullWidth,
         { borderColor, backgroundColor },
         pressed && !disabled && styles.pressed,
@@ -62,7 +65,19 @@ export function SecondaryButton({
       ]}
     >
       {icon && <AppIcon name={icon} size={17} color={textColor} />}
-      <Text style={[Typography.label, { color: textColor }]}>{title}</Text>
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.82}
+        style={[
+          Typography.label,
+          styles.label,
+          compact && styles.compactLabel,
+          { color: textColor },
+        ]}
+      >
+        {title}
+      </Text>
     </Pressable>
   );
 }
@@ -77,6 +92,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
+  },
+  compactButton: {
+    minHeight: 46,
+    paddingHorizontal: Spacing.md,
+  },
+  label: {
+    textAlign: 'center',
+  },
+  compactLabel: {
+    fontSize: 13,
   },
   fullWidth: {
     width: '100%',
