@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  FlatList,
   Modal,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type ViewStyle,
 } from 'react-native';
@@ -15,8 +18,13 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { AppIcon } from './AppIcon';
 import { PrimaryButton } from './PrimaryButton';
 
-const HOURS_12 = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+const HOURS_12 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 const ALL_MINUTES = Array.from({ length: 60 }, (_, idx) => idx);
+const PERIODS = ['AM', 'PM'] as const;
+
+const WHEEL_ITEM_HEIGHT = 46;
+const WHEEL_VISIBLE_ROWS = 3;
+const WHEEL_HEIGHT = WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_ROWS;
 
 export function to12HourParts(hour24: number, minute: number): {
   hour12: number;
@@ -59,6 +67,195 @@ export function formatTime12HourLabel(hhmm: string): string {
   return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
 }
 
+interface WheelColumnProps<T extends string | number> {
+  items: readonly T[];
+  selectedIndex: number;
+  formatItem: (item: T) => string;
+  onSelectIndex: (nextIndex: number) => void;
+  accessibilityLabel: string;
+  loop?: boolean;
+  accentSelected?: boolean;
+}
+
+function WheelColumn<T extends string | number>({
+  items,
+  selectedIndex,
+  formatItem,
+  onSelectIndex,
+  accessibilityLabel,
+  loop = false,
+  accentSelected = false,
+}: WheelColumnProps<T>) {
+  const palette = useAppTheme();
+  const baseLen = items.length;
+  const loopCycles = loop ? (baseLen <= 12 ? 40 : 20) : 1;
+  const midCycle = loop ? Math.floor(loopCycles / 2) : 0;
+
+  const virtualData = useMemo(() => {
+    if (!loop) return [...items];
+    const repeated: T[] = [];
+    for (let c = 0; c < loopCycles; c++) {
+      for (let i = 0; i < baseLen; i++) {
+        repeated.push(items[i]);
+      }
+    }
+    return repeated;
+  }, [items, loop, loopCycles, baseLen]);
+
+  const initialVirtualIndex = midCycle * baseLen + selectedIndex;
+  const listRef = useRef<FlatList<T>>(null);
+  const isMomentumRef = useRef(false);
+  const currentVirtualIndexRef = useRef(initialVirtualIndex);
+  const lastCommittedBaseIndexRef = useRef(selectedIndex);
+
+  useEffect(() => {
+    if (selectedIndex !== lastCommittedBaseIndexRef.current) {
+      lastCommittedBaseIndexRef.current = selectedIndex;
+      const targetVirtual = midCycle * baseLen + selectedIndex;
+      currentVirtualIndexRef.current = targetVirtual;
+      listRef.current?.scrollToOffset({
+        offset: targetVirtual * WHEEL_ITEM_HEIGHT,
+        animated: false,
+      });
+    }
+  }, [selectedIndex, midCycle, baseLen]);
+
+  const commitOffset = useCallback(
+    (offsetY: number, recenterIfEdge: boolean) => {
+      const total = virtualData.length;
+      const rawVirtual = Math.round(offsetY / WHEEL_ITEM_HEIGHT);
+      const clampedVirtual = Math.min(total - 1, Math.max(0, rawVirtual));
+      const baseIdx = ((clampedVirtual % baseLen) + baseLen) % baseLen;
+
+      currentVirtualIndexRef.current = clampedVirtual;
+
+      if (baseIdx !== lastCommittedBaseIndexRef.current) {
+        lastCommittedBaseIndexRef.current = baseIdx;
+        if (Platform.OS !== 'web') {
+          void Haptics.selectionAsync();
+        }
+        onSelectIndex(baseIdx);
+      }
+
+      // Silently recenter into the middle cycle if user scrolled near either virtual boundary
+      if (loop && recenterIfEdge) {
+        const minSafe = baseLen * 3;
+        const maxSafe = total - baseLen * 3;
+        if (clampedVirtual < minSafe || clampedVirtual > maxSafe) {
+          const recentered = midCycle * baseLen + baseIdx;
+          currentVirtualIndexRef.current = recentered;
+          listRef.current?.scrollToOffset({
+            offset: recentered * WHEEL_ITEM_HEIGHT,
+            animated: false,
+          });
+        }
+      }
+    },
+    [virtualData.length, baseLen, loop, midCycle, onSelectIndex],
+  );
+
+  const handleMomentumEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      isMomentumRef.current = false;
+      commitOffset(e.nativeEvent.contentOffset.y, true);
+    },
+    [commitOffset],
+  );
+
+  const handleScrollEndDrag = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y;
+      setTimeout(() => {
+        if (!isMomentumRef.current) {
+          commitOffset(y, true);
+        }
+      }, 65);
+    },
+    [commitOffset],
+  );
+
+  const handlePressVirtualIndex = useCallback(
+    (virtualIdx: number) => {
+      const baseIdx = ((virtualIdx % baseLen) + baseLen) % baseLen;
+      currentVirtualIndexRef.current = virtualIdx;
+      lastCommittedBaseIndexRef.current = baseIdx;
+      listRef.current?.scrollToOffset({
+        offset: virtualIdx * WHEEL_ITEM_HEIGHT,
+        animated: true,
+      });
+      if (Platform.OS !== 'web') {
+        void Haptics.selectionAsync();
+      }
+      onSelectIndex(baseIdx);
+    },
+    [baseLen, onSelectIndex],
+  );
+
+  const getItemLayout = useCallback(
+    (_data: ArrayLike<T> | null | undefined, index: number) => ({
+      length: WHEEL_ITEM_HEIGHT,
+      offset: WHEEL_ITEM_HEIGHT * index,
+      index,
+    }),
+    [],
+  );
+
+  return (
+    <View style={styles.wheelCol} accessibilityLabel={accessibilityLabel}>
+      <FlatList
+        ref={listRef}
+        data={virtualData}
+        keyExtractor={(_item, idx) => `${idx}`}
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+        nestedScrollEnabled
+        bounces={false}
+        snapToInterval={WHEEL_ITEM_HEIGHT}
+        decelerationRate="fast"
+        initialScrollIndex={initialVirtualIndex}
+        getItemLayout={getItemLayout}
+        windowSize={5}
+        initialNumToRender={7}
+        maxToRenderPerBatch={12}
+        contentContainerStyle={styles.wheelListContent}
+        onMomentumScrollBegin={() => {
+          isMomentumRef.current = true;
+        }}
+        onMomentumScrollEnd={handleMomentumEnd}
+        onScrollEndDrag={handleScrollEndDrag}
+        renderItem={({ item, index }) => {
+          const baseIdx = ((index % baseLen) + baseLen) % baseLen;
+          const isSelected = baseIdx === selectedIndex;
+          return (
+            <Pressable
+              onPress={() => handlePressVirtualIndex(index)}
+              style={styles.wheelItem}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSelected }}
+            >
+              <Text
+                style={[
+                  isSelected ? styles.activeWheelText : styles.inactiveWheelText,
+                  {
+                    color: isSelected
+                      ? accentSelected
+                        ? palette.accentMint
+                        : palette.text
+                      : palette.textMuted,
+                    opacity: isSelected ? 1 : 0.36,
+                  },
+                ]}
+              >
+                {formatItem(item)}
+              </Text>
+            </Pressable>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
 interface ExactTimeSelectorProps {
   hour24: number;
   minute: number;
@@ -73,211 +270,79 @@ export function ExactTimeSelector({
   const palette = useAppTheme();
   const { hour12, period } = to12HourParts(hour24, minute);
 
-  const [hourText, setHourText] = useState(String(hour12));
-  const [minuteText, setMinuteText] = useState(String(minute).padStart(2, '0'));
-  const [editingHour, setEditingHour] = useState(false);
-  const [editingMinute, setEditingMinute] = useState(false);
+  const hourIndex = HOURS_12.indexOf(hour12 as (typeof HOURS_12)[number]);
+  const minuteIndex = Math.min(59, Math.max(0, minute));
+  const periodIndex = period === 'PM' ? 1 : 0;
 
-  const displayedHour = editingHour ? hourText : String(hour12);
-  const displayedMinute = editingMinute ? minuteText : String(minute).padStart(2, '0');
+  const handleSelectHourIndex = useCallback(
+    (idx: number) => {
+      const nextHour12 = HOURS_12[idx] ?? 12;
+      onChangeTime(to24Hour(nextHour12, period), minute);
+    },
+    [minute, onChangeTime, period],
+  );
 
-  const commitHourInput = (raw: string) => {
-    const digits = raw.replace(/[^0-9]/g, '').slice(0, 2);
-    setHourText(digits);
-    const parsed = Number(digits);
-    if (digits.length > 0 && parsed >= 1 && parsed <= 12) {
-      onChangeTime(to24Hour(parsed, period), minute);
-    }
-  };
+  const handleSelectMinuteIndex = useCallback(
+    (idx: number) => {
+      onChangeTime(hour24, ALL_MINUTES[idx] ?? 0);
+    },
+    [hour24, onChangeTime],
+  );
 
-  const commitMinuteInput = (raw: string) => {
-    const digits = raw.replace(/[^0-9]/g, '').slice(0, 2);
-    setMinuteText(digits);
-    const parsed = Number(digits);
-    if (digits.length > 0 && parsed >= 0 && parsed <= 59) {
-      onChangeTime(hour24, parsed);
-    }
-  };
-
-  const selectHour = (h12: number) => {
-    setEditingHour(false);
-    setHourText(String(h12));
-    onChangeTime(to24Hour(h12, period), minute);
-  };
-
-  const selectMinute = (min: number) => {
-    setEditingMinute(false);
-    setMinuteText(String(min).padStart(2, '0'));
-    onChangeTime(hour24, min);
-  };
-
-  const selectPeriod = (nextPeriod: 'AM' | 'PM') => {
-    onChangeTime(to24Hour(hour12, nextPeriod), minute);
-  };
+  const handleSelectPeriodIndex = useCallback(
+    (idx: number) => {
+      const nextPeriod = PERIODS[idx] ?? 'PM';
+      onChangeTime(to24Hour(hour12, nextPeriod), minute);
+    },
+    [hour12, minute, onChangeTime],
+  );
 
   return (
-    <View style={styles.selectorWrap}>
-      <View style={styles.directRow}>
-        <View style={styles.timeInputGroup}>
-          <TextInput
-            value={displayedHour}
-            onFocus={() => {
-              setEditingHour(true);
-              setHourText(String(hour12));
-            }}
-            onBlur={() => setEditingHour(false)}
-            onChangeText={commitHourInput}
-            keyboardType="number-pad"
-            maxLength={2}
-            selectTextOnFocus
-            accessibilityLabel="Hour"
-            style={[
-              Typography.h2,
-              styles.timeInputBox,
-              {
-                color: palette.text,
-                backgroundColor: palette.surfaceGlass,
-                borderColor: editingHour ? palette.accentMint : palette.border,
-              },
-            ]}
-          />
-          <Text style={[Typography.h2, { color: palette.textMuted }]}>:</Text>
-          <TextInput
-            value={displayedMinute}
-            onFocus={() => {
-              setEditingMinute(true);
-              setMinuteText(String(minute).padStart(2, '0'));
-            }}
-            onBlur={() => setEditingMinute(false)}
-            onChangeText={commitMinuteInput}
-            keyboardType="number-pad"
-            maxLength={2}
-            selectTextOnFocus
-            accessibilityLabel="Minute"
-            style={[
-              Typography.h2,
-              styles.timeInputBox,
-              {
-                color: palette.text,
-                backgroundColor: palette.surfaceGlass,
-                borderColor: editingMinute ? palette.accentMint : palette.border,
-              },
-            ]}
-          />
-        </View>
-
-        <View
-          style={[
-            styles.periodToggle,
-            { backgroundColor: palette.surfaceMuted, borderColor: palette.border },
-          ]}
-        >
-          {(['AM', 'PM'] as const).map((p) => {
-            const active = period === p;
-            return (
-              <Pressable
-                key={p}
-                onPress={() => selectPeriod(p)}
-                style={[
-                  styles.periodBtn,
-                  active && { backgroundColor: palette.primary },
-                ]}
-              >
-                <Text
-                  style={[
-                    Typography.caption,
-                    {
-                      color: active ? '#ffffff' : palette.textMuted,
-                      fontWeight: '700',
-                    },
-                  ]}
-                >
-                  {p}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      <View style={styles.stripBlock}>
-        <Text style={[Typography.small, { color: palette.textMuted }]}>Hour</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
-        >
-          {HOURS_12.map((h) => {
-            const active = hour12 === h;
-            return (
-              <Pressable
-                key={h}
-                onPress={() => selectHour(h)}
-                style={[
-                  styles.numChip,
-                  {
-                    backgroundColor: active ? palette.sageTint : palette.surfaceGlass,
-                    borderColor: active ? palette.accentMint : palette.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    Typography.caption,
-                    {
-                      color: active ? palette.accentMint : palette.text,
-                      fontWeight: active ? '700' : '600',
-                    },
-                  ]}
-                >
-                  {h}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      <View style={styles.stripBlock}>
-        <Text style={[Typography.small, { color: palette.textMuted }]}>
-          Minute (exact 00–59)
+    <View style={styles.wheelSection}>
+      <View style={styles.wheelHeaderRow}>
+        <Text style={[Typography.small, styles.wheelHeaderLabel, { color: palette.textMuted }]}>
+          Hour
         </Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
-        >
-          {ALL_MINUTES.map((m) => {
-            const active = minute === m;
-            return (
-              <Pressable
-                key={m}
-                onPress={() => selectMinute(m)}
-                style={[
-                  styles.numChip,
-                  {
-                    backgroundColor: active ? palette.sageTint : palette.surfaceGlass,
-                    borderColor: active ? palette.accentMint : palette.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    Typography.caption,
-                    {
-                      color: active ? palette.accentMint : palette.text,
-                      fontWeight: active ? '700' : '600',
-                    },
-                  ]}
-                >
-                  {String(m).padStart(2, '0')}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        <Text style={[Typography.small, styles.wheelHeaderLabel, { color: palette.textMuted }]}>
+          Min
+        </Text>
+        <Text style={[Typography.small, styles.wheelHeaderLabel, { color: palette.textMuted }]}>
+          AM / PM
+        </Text>
+      </View>
+
+      {/* Borderless floating 3-column wheel directly on modal surface */}
+      <View style={styles.wheelFloatingArea}>
+        <View pointerEvents="none" style={styles.colonOverlay}>
+          <Text style={[styles.colonText, { color: palette.text }]}>:</Text>
+        </View>
+
+        <View style={styles.wheelColumnsRow}>
+          <WheelColumn
+            items={HOURS_12}
+            selectedIndex={hourIndex >= 0 ? hourIndex : 0}
+            formatItem={(h) => String(h)}
+            onSelectIndex={handleSelectHourIndex}
+            accessibilityLabel="Select hour"
+            loop
+          />
+          <WheelColumn
+            items={ALL_MINUTES}
+            selectedIndex={minuteIndex}
+            formatItem={(m) => String(m).padStart(2, '0')}
+            onSelectIndex={handleSelectMinuteIndex}
+            accessibilityLabel="Select minute"
+            loop
+          />
+          <WheelColumn
+            items={PERIODS}
+            selectedIndex={periodIndex}
+            formatItem={(p) => p}
+            onSelectIndex={handleSelectPeriodIndex}
+            accessibilityLabel="Select AM or PM"
+            accentSelected
+          />
+        </View>
       </View>
     </View>
   );
@@ -404,7 +469,7 @@ const styles = StyleSheet.create({
   sheet: {
     borderRadius: Radii.xl,
     borderWidth: 1,
-    padding: Spacing.lg,
+    padding: Spacing.xl,
     gap: Spacing.lg,
   },
   sheetHeader: {
@@ -412,56 +477,66 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  selectorWrap: {
-    gap: Spacing.md,
+  wheelSection: {
+    gap: Spacing.xs,
   },
-  directRow: {
+  wheelHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
+    paddingHorizontal: Spacing.sm,
   },
-  timeInputGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  timeInputBox: {
-    width: 64,
-    height: 50,
-    borderRadius: Radii.md,
-    borderWidth: 1,
+  wheelHeaderLabel: {
+    flex: 1,
     textAlign: 'center',
-    paddingVertical: 0,
+    fontWeight: '600',
   },
-  periodToggle: {
+  wheelFloatingArea: {
+    height: WHEEL_HEIGHT,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  colonOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: WHEEL_ITEM_HEIGHT,
+    height: WHEEL_ITEM_HEIGHT,
+    justifyContent: 'center',
+  },
+  colonText: {
+    position: 'absolute',
+    left: '33.33%',
+    marginLeft: -4,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  wheelColumnsRow: {
+    flex: 1,
     flexDirection: 'row',
-    borderRadius: Radii.md,
-    borderWidth: 1,
-    padding: 3,
-    gap: 4,
   },
-  periodBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
-    borderRadius: Radii.sm,
+  wheelCol: {
+    flex: 1,
+    height: WHEEL_HEIGHT,
+  },
+  wheelListContent: {
+    paddingVertical: WHEEL_ITEM_HEIGHT,
+  },
+  wheelItem: {
+    height: WHEEL_ITEM_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stripBlock: {
-    gap: 6,
+  activeWheelText: {
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '700',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
-  chipRow: {
-    gap: 6,
-    paddingVertical: 2,
-  },
-  numChip: {
-    minWidth: 40,
-    height: 36,
-    borderRadius: Radii.sm,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
+  inactiveWheelText: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '500',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
 });

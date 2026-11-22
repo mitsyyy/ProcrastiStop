@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Calendar, type DateData } from 'react-native-calendars';
 
-import { Radii, Spacing, Typography } from '@/constants/theme';
+import { FontFamilies, Radii, Spacing, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { formatFullDateTime } from '@/utils/date';
 import { AppIcon } from './AppIcon';
@@ -14,26 +15,24 @@ interface DateTimePickerProps {
   value: string | null;
   onChange: (isoOrNull: string | null) => void;
   required?: boolean;
+  disallowPast?: boolean;
+  placeholder?: string;
   error?: string;
   containerStyle?: ViewStyle;
 }
 
-const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const;
-
-function getDefaultDeadlineDate(): Date {
+function getDefaultDraftDate(): Date {
   const date = new Date();
-  date.setDate(date.getDate() + 2);
+  date.setDate(date.getDate() + 1);
   date.setHours(19, 0, 0, 0);
   return date;
 }
 
-function buildCalendarCells(year: number, month: number): (number | null)[] {
-  const firstDayOfWeek = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  return cells;
+function toDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 export function DateTimePicker({
@@ -41,38 +40,44 @@ export function DateTimePicker({
   value,
   onChange,
   required = false,
+  disallowPast = true,
+  placeholder = 'Select deadline date & time',
   error,
   containerStyle,
 }: DateTimePickerProps) {
   const palette = useAppTheme();
   const [open, setOpen] = useState(false);
   const [draftDate, setDraftDate] = useState<Date>(() =>
-    value && !Number.isNaN(new Date(value).getTime()) ? new Date(value) : getDefaultDeadlineDate(),
+    value && !Number.isNaN(new Date(value).getTime()) ? new Date(value) : getDefaultDraftDate(),
   );
-  const [viewYear, setViewYear] = useState(() => draftDate.getFullYear());
-  const [viewMonth, setViewMonth] = useState(() => draftDate.getMonth());
+  const [calendarMonthKey, setCalendarMonthKey] = useState<string>(() => toDateKey(draftDate));
+  const [modalNowMs, setModalNowMs] = useState<number>(() => Date.now());
+  const [pastSelectionError, setPastSelectionError] = useState<string | null>(null);
 
   const openModal = () => {
+    const nowMs = Date.now();
+    setModalNowMs(nowMs);
+    setPastSelectionError(null);
     const initial =
       value && !Number.isNaN(new Date(value).getTime())
         ? new Date(value)
-        : getDefaultDeadlineDate();
+        : getDefaultDraftDate();
     setDraftDate(initial);
-    setViewYear(initial.getFullYear());
-    setViewMonth(initial.getMonth());
+    setCalendarMonthKey(toDateKey(initial));
     setOpen(true);
   };
 
-  const shiftMonth = (delta: number) => {
-    const next = new Date(viewYear, viewMonth + delta, 1);
-    setViewYear(next.getFullYear());
-    setViewMonth(next.getMonth());
-  };
+  const todayDateKey = toDateKey(new Date(modalNowMs));
 
-  const selectCalendarDay = (day: number) => {
+  const selectCalendarDate = (day: DateData) => {
+    if (disallowPast && day.dateString < todayDateKey) {
+      setPastSelectionError('Past dates cannot be selected. Choose today or a future date.');
+      return;
+    }
+    setPastSelectionError(null);
     setDraftDate((prev) => {
       const next = new Date(prev);
-      next.setFullYear(viewYear, viewMonth, day);
+      next.setFullYear(day.year, day.month - 1, day.day);
       return next;
     });
   };
@@ -80,16 +85,17 @@ export function DateTimePicker({
   const applyQuickDateOffset = (daysFromToday: number) => {
     const target = new Date();
     target.setDate(target.getDate() + daysFromToday);
+    setPastSelectionError(null);
     setDraftDate((prev) => {
       const next = new Date(prev);
       next.setFullYear(target.getFullYear(), target.getMonth(), target.getDate());
       return next;
     });
-    setViewYear(target.getFullYear());
-    setViewMonth(target.getMonth());
+    setCalendarMonthKey(toDateKey(target));
   };
 
   const updateDraftTime = (hour24: number, minute: number) => {
+    setPastSelectionError(null);
     setDraftDate((prev) => {
       const next = new Date(prev);
       next.setHours(hour24, minute, 0, 0);
@@ -97,12 +103,37 @@ export function DateTimePicker({
     });
   };
 
-  const today = new Date();
-  const cells = buildCalendarCells(viewYear, viewMonth);
-  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString([], {
-    month: 'long',
-    year: 'numeric',
-  });
+  const handleApply = () => {
+    if (disallowPast && draftDate.getTime() <= Date.now()) {
+      setPastSelectionError('Selected date & time is in the past. Pick a future time.');
+      return;
+    }
+    onChange(draftDate.toISOString());
+    setOpen(false);
+  };
+
+  const selectedDateKey = toDateKey(draftDate);
+  const isDraftInPast = disallowPast && draftDate.getTime() <= modalNowMs;
+
+  const calendarTheme = useMemo(
+    () => ({
+      backgroundColor: 'transparent',
+      calendarBackground: 'transparent',
+      textSectionTitleColor: palette.textMuted,
+      monthTextColor: palette.text,
+      arrowColor: palette.accentMint,
+      dayTextColor: palette.text,
+      todayTextColor: palette.accentMint,
+      textDisabledColor: palette.placeholder,
+      textMonthFontFamily: FontFamilies.bold,
+      textMonthFontSize: 16,
+      textDayHeaderFontFamily: FontFamilies.semiBold,
+      textDayHeaderFontSize: 12,
+      textDayFontFamily: FontFamilies.medium,
+      textDayFontSize: 14,
+    }),
+    [palette],
+  );
 
   return (
     <View style={[styles.wrapper, containerStyle]}>
@@ -140,7 +171,7 @@ export function DateTimePicker({
           ]}
           numberOfLines={1}
         >
-          {value ? formatFullDateTime(value) : 'Select exact date & time'}
+          {value ? formatFullDateTime(value) : placeholder}
         </Text>
         <AppIcon name="chevron" size={16} color={palette.textMuted} />
       </Pressable>
@@ -171,12 +202,18 @@ export function DateTimePicker({
             <ScrollView
               showsVerticalScrollIndicator={false}
               showsHorizontalScrollIndicator={false}
+              nestedScrollEnabled
               contentContainerStyle={styles.sheetScroll}
             >
               <View
                 style={[
                   styles.previewPanel,
-                  { backgroundColor: palette.sageTint, borderColor: palette.border },
+                  {
+                    backgroundColor:
+                      isDraftInPast || pastSelectionError ? palette.dangerSoft : palette.sageTint,
+                    borderColor:
+                      isDraftInPast || pastSelectionError ? palette.danger : palette.border,
+                  },
                 ]}
               >
                 <Text style={[Typography.small, { color: palette.textMuted }]}>
@@ -185,6 +222,11 @@ export function DateTimePicker({
                 <Text style={[Typography.bodySemiBold, { color: palette.text, marginTop: 2 }]}>
                   {formatFullDateTime(draftDate.toISOString())}
                 </Text>
+                {pastSelectionError || isDraftInPast ? (
+                  <Text style={[Typography.small, { color: palette.dangerText, marginTop: 4 }]}>
+                    {pastSelectionError ?? 'Choose a date & time later than right now.'}
+                  </Text>
+                ) : null}
               </View>
 
               {/* Quick Date Presets */}
@@ -210,102 +252,87 @@ export function DateTimePicker({
                 ))}
               </View>
 
-              {/* Interactive Calendar Grid */}
+              {/* Library Calendar with 1:1 Symmetrical Day Circles & Clean Chevrons */}
               <View
                 style={[
                   styles.calendarCard,
                   { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
                 ]}
               >
-                <View style={styles.monthHeader}>
-                  <Pressable
-                    onPress={() => shiftMonth(-1)}
-                    style={[styles.navArrow, { backgroundColor: palette.surfaceMuted }]}
-                  >
-                    <AppIcon name="arrow" size={16} color={palette.text} />
-                  </Pressable>
-                  <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
-                    {monthLabel}
-                  </Text>
-                  <Pressable
-                    onPress={() => shiftMonth(1)}
-                    style={[styles.navArrow, { backgroundColor: palette.surfaceMuted }]}
-                  >
-                    <AppIcon name="chevron" size={16} color={palette.text} />
-                  </Pressable>
-                </View>
-
-                <View style={styles.weekRow}>
-                  {WEEKDAYS.map((w, idx) => (
-                    <Text
-                      key={`${w}-${idx}`}
-                      style={[Typography.small, styles.weekLabel, { color: palette.textMuted }]}
-                    >
-                      {w}
-                    </Text>
-                  ))}
-                </View>
-
-                <View style={styles.daysGrid}>
-                  {cells.map((day, idx) => {
-                    if (day === null) {
-                      return <View key={`empty-${idx}`} style={styles.dayCell} />;
-                    }
-                    const isSelected =
-                      draftDate.getFullYear() === viewYear &&
-                      draftDate.getMonth() === viewMonth &&
-                      draftDate.getDate() === day;
-                    const isToday =
-                      today.getFullYear() === viewYear &&
-                      today.getMonth() === viewMonth &&
-                      today.getDate() === day;
+                <Calendar
+                  key={calendarMonthKey.slice(0, 7)}
+                  current={calendarMonthKey}
+                  minDate={disallowPast ? todayDateKey : undefined}
+                  enableSwipeMonths
+                  theme={calendarTheme}
+                  onMonthChange={(m) => setCalendarMonthKey(m.dateString)}
+                  renderArrow={(direction) => (
+                    <View style={styles.chevronHit}>
+                      <AppIcon
+                        name={direction === 'left' ? 'arrow' : 'chevron'}
+                        size={18}
+                        color={palette.accentMint}
+                        strokeWidth={2.2}
+                      />
+                    </View>
+                  )}
+                  dayComponent={({ date, state }) => {
+                    if (!date) return <View style={styles.dayCellWrapper} />;
+                    const isSelected = date.dateString === selectedDateKey;
+                    const isToday = date.dateString === todayDateKey;
+                    const isPastDay = disallowPast && date.dateString < todayDateKey;
+                    const isOutsideMonth = state === 'disabled' || isPastDay;
 
                     return (
-                      <Pressable
-                        key={`day-${day}`}
-                        onPress={() => selectCalendarDay(day)}
-                        style={[
-                          styles.dayCell,
-                          isSelected && { backgroundColor: palette.primary },
-                          !isSelected &&
-                            isToday && {
-                              borderWidth: 1,
-                              borderColor: palette.accentMint,
-                            },
-                        ]}
-                      >
-                        <Text
+                      <View style={styles.dayCellWrapper}>
+                        <Pressable
+                          disabled={isPastDay}
+                          onPress={() => selectCalendarDate(date)}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: isSelected, disabled: isPastDay }}
+                          accessibilityLabel={date.dateString}
                           style={[
-                            Typography.caption,
-                            {
-                              color: isSelected
-                                ? '#ffffff'
-                                : isToday
-                                  ? palette.accentMint
-                                  : palette.text,
-                              fontWeight: isSelected || isToday ? '700' : '500',
-                            },
+                            styles.dayCircle,
+                            isSelected && !isPastDay && { backgroundColor: palette.primary },
+                            !isSelected &&
+                              isToday && {
+                                borderWidth: 1.5,
+                                borderColor: palette.accentMint,
+                              },
                           ]}
                         >
-                          {day}
-                        </Text>
-                      </Pressable>
+                          <Text
+                            style={[
+                              Typography.caption,
+                              styles.dayText,
+                              {
+                                color: isSelected && !isPastDay
+                                  ? '#ffffff'
+                                  : isToday
+                                    ? palette.accentMint
+                                    : isOutsideMonth
+                                      ? palette.placeholder
+                                      : palette.text,
+                                opacity: isPastDay ? 0.35 : 1,
+                                fontWeight: isSelected || isToday ? '700' : '500',
+                              },
+                            ]}
+                          >
+                            {date.day}
+                          </Text>
+                        </Pressable>
+                      </View>
                     );
-                  })}
-                </View>
+                  }}
+                />
               </View>
 
-              {/* Exact 1-Minute Precision Time Selector */}
-              <View
-                style={[
-                  styles.timeCard,
-                  { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
-                ]}
-              >
+              {/* Borderless Infinite-Loop 3-Column Scroll-Wheel Time Picker */}
+              <View style={styles.timeSection}>
                 <View style={styles.timeCardHeader}>
                   <AppIcon name="clock" size={16} color={palette.accentMint} />
                   <Text style={[Typography.label, { color: palette.text }]}>
-                    Exact time (1-min precision)
+                    Exact time
                   </Text>
                 </View>
                 <ExactTimeSelector
@@ -320,6 +347,7 @@ export function DateTimePicker({
               {!required ? (
                 <SecondaryButton
                   title="Clear"
+                  compact
                   onPress={() => {
                     onChange(null);
                     setOpen(false);
@@ -329,16 +357,15 @@ export function DateTimePicker({
               ) : (
                 <SecondaryButton
                   title="Cancel"
+                  compact
                   onPress={() => setOpen(false)}
                   style={styles.flexOne}
                 />
               )}
               <PrimaryButton
                 title="Apply"
-                onPress={() => {
-                  onChange(draftDate.toISOString());
-                  setOpen(false);
-                }}
+                compact
+                onPress={handleApply}
                 fullWidth={false}
                 style={styles.flexOne}
               />
@@ -370,7 +397,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: Spacing.lg,
     gap: Spacing.md,
-    maxHeight: '88%',
+    maxHeight: '90%',
   },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sheetScroll: { gap: Spacing.md },
@@ -385,21 +412,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
   },
-  calendarCard: { borderRadius: Radii.lg, borderWidth: 1, padding: Spacing.md, gap: Spacing.sm },
-  timeCard: { borderRadius: Radii.lg, borderWidth: 1, padding: Spacing.md, gap: Spacing.md },
-  timeCardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  monthHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  navArrow: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  weekRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  weekLabel: { width: '14.28%', textAlign: 'center', fontWeight: '700' },
-  daysGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  dayCell: {
-    width: '14.28%',
+  calendarCard: {
+    borderRadius: Radii.lg,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+  },
+  chevronHit: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayCellWrapper: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayCircle: {
+    width: 36,
+    height: 36,
     aspectRatio: 1,
     borderRadius: Radii.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  dayText: {
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  timeSection: { paddingHorizontal: Spacing.xs, gap: Spacing.sm },
+  timeCardHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   modalActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.xs },
   flexOne: { flex: 1 },
 });
