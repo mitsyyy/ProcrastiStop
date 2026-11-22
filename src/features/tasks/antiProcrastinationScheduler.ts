@@ -148,6 +148,105 @@ export function formatMinutesOfDayLabel(totalMinutes: number): string {
   return `${h12}:${String(m).padStart(2, '0')} ${suffix}`;
 }
 
+export interface SessionOverlapConflict {
+  conflictingTask: Task;
+  conflictRangeLabel: string;
+  earliestAvailableLabel: string;
+  errorMessage: string;
+}
+
+export interface SessionOverlapCandidate {
+  excludeTaskId?: string;
+  dailySessionStartTime: string;
+  estimatedMinutes: number | null;
+  deadline: string | null;
+}
+
+/**
+ * Strict full-duration session time-slot overlap guard:
+ * Rejects creating/editing any task where `newStart < existingEnd && newEnd > existingStart`
+ * against any active scheduled task (accounting for full session duration, midnight rollover,
+ * and active +1h skip-rescheduled slots).
+ */
+export function findScheduledSessionOverlap(
+  candidate: SessionOverlapCandidate,
+  existingTasks: Task[],
+  options?: {
+    fallbackHHmm?: string;
+    fallbackDurationMinutes?: number;
+    now?: Date;
+  },
+): SessionOverlapConflict | null {
+  const now = options?.now ?? new Date();
+  const nowMs = now.getTime();
+  const fallbackHHmm = options?.fallbackHHmm ?? DEFAULT_DAILY_SESSION_TIME;
+  const fallbackDur = options?.fallbackDurationMinutes ?? DEFAULT_SESSION_DURATION_MINUTES;
+
+  const newDuration = getTaskSessionDurationMinutes(
+    { estimatedMinutes: candidate.estimatedMinutes },
+    fallbackDur,
+  );
+  const parsedNew = parseHHmm(candidate.dailySessionStartTime || fallbackHHmm);
+  const newStartMin = parsedNew.hour24 * 60 + parsedNew.minute;
+  const newEndMin = newStartMin + newDuration;
+
+  const candidateUpcomingStart = computeUpcomingSessionDateFromTime(
+    candidate.dailySessionStartTime || fallbackHHmm,
+    now,
+  );
+  const candidateUpcomingStartMs = candidateUpcomingStart.getTime();
+  const candidateUpcomingEndMs = candidateUpcomingStartMs + newDuration * 60_000;
+
+  for (const existing of existingTasks) {
+    if (candidate.excludeTaskId && existing.id === candidate.excludeTaskId) continue;
+    if (isTaskClosedOrTerminal(existing)) continue;
+    if (isTaskPastDue(existing, nowMs)) continue;
+
+    const existingDur = getTaskSessionDurationMinutes(existing, fallbackDur);
+
+    // 1. Check daily recurring focus slot across full duration (including midnight wraparound)
+    const existingHHmm = existing.dailySessionStartTime || fallbackHHmm;
+    const parsedExisting = parseHHmm(existingHHmm);
+    const existingStartMin = parsedExisting.hour24 * 60 + parsedExisting.minute;
+    const existingEndMin = existingStartMin + existingDur;
+
+    for (const dayShift of [-1440, 0, 1440]) {
+      const shiftedStart = existingStartMin + dayShift;
+      const shiftedEnd = existingEndMin + dayShift;
+      if (newStartMin < shiftedEnd && newEndMin > shiftedStart) {
+        const conflictRangeLabel = `${formatMinutesOfDayLabel(existingStartMin)} – ${formatMinutesOfDayLabel(existingEndMin)}`;
+        const earliestAvailableLabel = formatMinutesOfDayLabel(existingEndMin);
+        return {
+          conflictingTask: existing,
+          conflictRangeLabel,
+          earliestAvailableLabel,
+          errorMessage: `Conflicts with "${existing.title}" (${conflictRangeLabel}). Earliest available slot: ${earliestAvailableLabel}.`,
+        };
+      }
+    }
+
+    // 2. Also check any active future +1h skip-rescheduled window
+    if (existing.rescheduledStartAt) {
+      const reschedStartMs = new Date(existing.rescheduledStartAt).getTime();
+      const reschedEndMs = reschedStartMs + existingDur * 60_000;
+      if (!Number.isNaN(reschedStartMs) && reschedEndMs > nowMs) {
+        if (candidateUpcomingStartMs < reschedEndMs && candidateUpcomingEndMs > reschedStartMs) {
+          const conflictRangeLabel = `${formatTimeShort(new Date(reschedStartMs))} – ${formatTimeShort(new Date(reschedEndMs))}`;
+          const earliestAvailableLabel = formatTimeShort(new Date(reschedEndMs));
+          return {
+            conflictingTask: existing,
+            conflictRangeLabel,
+            earliestAvailableLabel,
+            errorMessage: `Conflicts with rescheduled "${existing.title}" (${conflictRangeLabel}). Earliest available slot: ${earliestAvailableLabel}.`,
+          };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Returns the next upcoming focus session Date for an open task, honoring any active
  * explicit 1-hour skip reschedule timestamp before falling back to the daily start time.
