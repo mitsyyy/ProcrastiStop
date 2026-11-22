@@ -124,7 +124,7 @@ export default function CameraCheckpointScreen() {
   const lastLockWarningAtRef = useRef(0);
   const canShowSkipRef = useRef(false);
 
-  const canShowSkipButton = isGateMode;
+  const canShowSkipButton = isGateMode && hoverElapsedSeconds >= SKIP_UNLOCK_HOVER_SECONDS;
 
   useEffect(() => {
     activeTargetRef.current = targetItem;
@@ -188,6 +188,28 @@ export default function CameraCheckpointScreen() {
     return () => sub.remove();
   }, [getPermission]);
 
+  // Track active camera hover time on AI Camera Gate; unlock Skip button strictly after 30 seconds
+  const isCameraHoverActive =
+    isGateMode &&
+    Boolean(permission?.granted) &&
+    !mountError &&
+    !verified &&
+    isScreenFocused &&
+    isAppActive;
+
+  useEffect(() => {
+    if (!isCameraHoverActive || hoverElapsedSeconds >= SKIP_UNLOCK_HOVER_SECONDS) {
+      return;
+    }
+    const intervalId = setInterval(() => {
+      setHoverElapsedSeconds((prev) =>
+        prev >= SKIP_UNLOCK_HOVER_SECONDS ? SKIP_UNLOCK_HOVER_SECONDS : prev + 1,
+      );
+    }, 1000);
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isCameraHoverActive, hoverElapsedSeconds]);
 
   // Play native looping alarm sound + vibration while waiting for scan on auto-start alarm
   useEffect(() => {
