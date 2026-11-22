@@ -19,6 +19,7 @@ export const STORAGE_KEYS = {
   BLOCKER_PERMISSIONS: '@procrastistop/blocker_permissions',
   AUTH_USER: '@procrastistop/auth_user',
   ONBOARDING_COMPLETED: '@procrastistop/onboarding_completed',
+  PERMISSION_ONBOARDING_COMPLETED: '@procrastistop/permission_onboarding_completed',
   SCHEDULED_NOTIFICATION_IDS: '@procrastistop/scheduled_notification_ids',
 } as const;
 
