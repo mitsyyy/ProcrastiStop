@@ -43,6 +43,8 @@ export default function HomeScreen() {
 
   const activeSession = useFocusStore((s) => s.activeSession);
   const remainingSeconds = useFocusStore((s) => s.remainingSeconds);
+  const pauseSession = useFocusStore((s) => s.pauseSession);
+  const resumeSession = useFocusStore((s) => s.resumeSession);
 
   useFocusTicker(() => {
     router.push('/focus/completed');
@@ -54,7 +56,9 @@ export default function HomeScreen() {
   const openTasks = useMemo(
     () =>
       sortTasks(
-        tasks.filter((t) => t.status !== 'completed' && t.status !== 'cancelled'),
+        tasks.filter(
+          (t) => t.status !== 'completed' && t.status !== 'cancelled' && t.status !== 'missed',
+        ),
         'deadline',
       ),
     [tasks],
@@ -75,6 +79,7 @@ export default function HomeScreen() {
   );
 
   const primaryTask = openTasks[0] ?? null;
+  const isSessionRunning = activeSession?.status === 'active';
   const hasActiveOrPaused =
     activeSession?.status === 'active' || activeSession?.status === 'paused';
 
@@ -237,7 +242,16 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <View style={styles.ringWrap}>
+            <Pressable
+              onPress={() => {
+                if (hasActiveOrPaused) {
+                  router.push('/focus/active');
+                }
+              }}
+              style={styles.ringWrap}
+              accessibilityRole={hasActiveOrPaused ? 'button' : undefined}
+              accessibilityLabel={hasActiveOrPaused ? 'Open active focus timer' : undefined}
+            >
               <TimerRing progress={heroProgress} size={208} strokeWidth={11}>
                 <Text style={[Typography.small, { color: 'rgba(255,255,255,0.62)' }]}>
                   {hasActiveOrPaused
@@ -253,7 +267,7 @@ export default function HomeScreen() {
                   {heroPlannedMinutes} min block
                 </Text>
               </TimerRing>
-            </View>
+            </Pressable>
 
             <Text style={[Typography.caption, styles.heroNudge]}>
               {hasActiveOrPaused
@@ -271,16 +285,27 @@ export default function HomeScreen() {
               </Pressable>
 
               <Pressable
-                onPress={() =>
-                  router.push(
-                    hasActiveOrPaused
-                      ? '/focus/active'
-                      : primaryTask
+                onPress={() => {
+                  if (isSessionRunning) {
+                    void pauseSession();
+                  } else if (activeSession?.status === 'paused') {
+                    void resumeSession();
+                  } else {
+                    router.push(
+                      primaryTask
                         ? { pathname: '/focus/setup', params: { taskId: primaryTask.id } }
                         : '/focus/setup',
-                  )
+                    );
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isSessionRunning
+                    ? 'Pause active focus session'
+                    : activeSession?.status === 'paused'
+                      ? 'Resume focus session'
+                      : 'Start focus session'
                 }
-                accessibilityLabel={hasActiveOrPaused ? 'Resume focus view' : 'Start focus session'}
               >
                 <LinearGradient
                   colors={palette.energyGradient}
@@ -288,20 +313,37 @@ export default function HomeScreen() {
                   end={{ x: 1, y: 1 }}
                   style={[styles.mainPlayCircle, Shadows.energyButton]}
                 >
-                  <AppIcon name="play" size={26} color="#ffffff" />
+                  <AppIcon
+                    name={isSessionRunning ? 'pause' : 'play'}
+                    size={26}
+                    color="#ffffff"
+                    strokeWidth={2.2}
+                  />
                 </LinearGradient>
               </Pressable>
 
               <Pressable
                 onPress={() =>
-                  primaryTask
-                    ? router.push({ pathname: '/tasks/[taskId]', params: { taskId: primaryTask.id } })
-                    : router.push('/tasks/create')
+                  hasActiveOrPaused
+                    ? router.push('/focus/active')
+                    : primaryTask
+                      ? router.push({ pathname: '/tasks/[taskId]', params: { taskId: primaryTask.id } })
+                      : router.push('/tasks/create')
                 }
-                accessibilityLabel={primaryTask ? 'Open priority task' : 'Create a task'}
+                accessibilityLabel={
+                  hasActiveOrPaused
+                    ? 'Open full timer view'
+                    : primaryTask
+                      ? 'Open priority task'
+                      : 'Create a task'
+                }
                 style={styles.secondaryCircleBtn}
               >
-                <AppIcon name={primaryTask ? 'chevron' : 'plus'} size={20} color="#153c30" />
+                <AppIcon
+                  name={hasActiveOrPaused || primaryTask ? 'chevron' : 'plus'}
+                  size={20}
+                  color="#153c30"
+                />
               </Pressable>
             </View>
             </LinearGradient>
@@ -397,33 +439,38 @@ export default function HomeScreen() {
 
               <View style={styles.miniChart}>
                 {(summary?.dailyBreakdown ?? []).map((point, idx) => {
-                  const pct = Math.max(10, Math.round((point.minutes / maxDailyMins) * 100));
+                  const pct = Math.max(12, Math.round((point.minutes / maxDailyMins) * 100));
                   const isPeak =
                     point.minutes > 0 &&
                     point.minutes ===
                       Math.max(...(summary?.dailyBreakdown ?? []).map((d) => d.minutes));
                   return (
                     <View key={`${point.dateKey}-${idx}`} style={styles.barCol}>
-                      {isPeak ? (
-                        <LinearGradient
-                          colors={palette.energyGradient}
-                          style={[styles.bar, { height: `${pct}%` }]}
-                        />
-                      ) : (
-                        <View
-                          style={[
-                            styles.bar,
-                            {
-                              height: `${pct}%`,
-                              backgroundColor:
-                                palette.mode === 'dark'
-                                  ? 'rgba(255,255,255,0.2)'
-                                  : palette.sageTint,
-                            },
-                          ]}
-                        />
-                      )}
-                      <Text style={[Typography.small, { color: palette.textMuted }]}>
+                      <View style={styles.barTrack}>
+                        {isPeak ? (
+                          <LinearGradient
+                            colors={palette.energyGradient}
+                            style={[styles.bar, { height: `${pct}%` }]}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.bar,
+                              {
+                                height: `${pct}%`,
+                                backgroundColor:
+                                  palette.mode === 'dark'
+                                    ? 'rgba(255,255,255,0.2)'
+                                    : palette.sageTint,
+                              },
+                            ]}
+                          />
+                        )}
+                      </View>
+                      <Text
+                        numberOfLines={1}
+                        style={[Typography.small, styles.dayAxisLabel, { color: palette.textMuted }]}
+                      >
                         {point.dayLabel}
                       </Text>
                     </View>
@@ -701,23 +748,33 @@ const styles = StyleSheet.create({
     borderRadius: Radii.xs,
   },
   miniChart: {
-    height: 100,
+    height: 112,
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
+    alignItems: 'stretch',
+    width: '100%',
   },
   barCol: {
     flex: 1,
-    height: '100%',
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    gap: 6,
+    gap: 8,
+  },
+  barTrack: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   bar: {
     width: 12,
     borderRadius: 6,
     minHeight: 8,
+  },
+  dayAxisLabel: {
+    width: '100%',
+    textAlign: 'center',
+    fontWeight: '600',
   },
   modalBackdrop: {
     flex: 1,

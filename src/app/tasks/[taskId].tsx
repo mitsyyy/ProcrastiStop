@@ -11,18 +11,18 @@ import { AppIcon } from '@/components/ui/AppIcon';
 import { Card } from '@/components/ui/Card';
 import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 import { ErrorState } from '@/components/ui/ErrorState';
-import { IconButton } from '@/components/ui/IconButton';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { ScreenBackground } from '@/components/ui/ScreenBackground';
 import { SecondaryButton } from '@/components/ui/SecondaryButton';
 import { formatTime12HourLabel } from '@/components/ui/TimeOfDayPicker';
 import { Layout, Radii, Spacing, Typography } from '@/constants/theme';
+import { getCheckpointItemOption } from '@/features/checkpoints/checkpointAnalyzer';
 import {
   computeDailyNudgeDates,
+  computeNextDailySessionDate,
   computeTargetCompletionIso,
   DEFAULT_DAILY_SESSION_TIME,
   formatTimeShort,
-  getSessionDateForDay,
   normalizeDailyReminderCount,
 } from '@/features/tasks/antiProcrastinationScheduler';
 import { useAppTheme } from '@/hooks/useAppTheme';
@@ -40,6 +40,7 @@ import {
 const STATUS_ACTIONS: { status: TaskStatus; label: string }[] = [
   { status: 'pending', label: 'Pending' },
   { status: 'in_progress', label: 'In Progress' },
+  { status: 'skipped', label: 'Skipped' },
   { status: 'completed', label: 'Completed' },
   { status: 'cancelled', label: 'Cancelled' },
 ];
@@ -100,12 +101,14 @@ export default function TaskDetailScreen() {
   const dailyReminders = normalizeDailyReminderCount(
     task.dailyReminderCount ?? preferences.defaultDailyReminderCount,
   );
-  const sampleNudges = computeDailyNudgeDates(
-    getSessionDateForDay(new Date(), dailySessionTime),
-    dailyReminders,
-  )
-    .map(formatTimeShort)
-    .join(' · ');
+  const nextSessionDate = computeNextDailySessionDate(task, dailySessionTime);
+  const proportionalNudges = nextSessionDate
+    ? computeDailyNudgeDates(nextSessionDate, dailyReminders)
+    : [];
+  const sampleNudges =
+    proportionalNudges.length > 0
+      ? proportionalNudges.map(formatTimeShort).join(' · ')
+      : 'None pending before next session';
 
   const handleStatusChange = async (nextStatus: TaskStatus) => {
     await updateTask(task.id, { status: nextStatus });
@@ -137,11 +140,29 @@ export default function TaskDetailScreen() {
             title="Task details"
             onBack={() => router.back()}
             right={
-              <IconButton
-                icon="close"
-                accessibilityLabel="Delete task"
+              <Pressable
                 onPress={() => setConfirmDelete(true)}
-              />
+                accessibilityRole="button"
+                accessibilityLabel="Delete task"
+                style={({ pressed }) => [
+                  styles.deletePillBtn,
+                  {
+                    backgroundColor: palette.dangerSoft,
+                    borderColor: palette.danger,
+                  },
+                  pressed && styles.deletePillPressed,
+                ]}
+              >
+                <AppIcon name="trash" size={15} color={palette.dangerText} />
+                <Text
+                  style={[
+                    Typography.caption,
+                    { color: palette.dangerText, fontWeight: '700' },
+                  ]}
+                >
+                  Delete
+                </Text>
+              </Pressable>
             }
           />
 
@@ -205,6 +226,24 @@ export default function TaskDetailScreen() {
                 {formatTime12HourLabel(dailySessionTime)}
               </Text>
             </View>
+            <View style={styles.scheduleMetaRow}>
+              <Text style={[Typography.small, { color: palette.textMuted }]}>
+                Required AI scan item
+              </Text>
+              <Text style={[Typography.caption, { color: palette.accentMint, fontWeight: '700' }]}>
+                {getCheckpointItemOption(task.requiredCheckpointItem).label}
+              </Text>
+            </View>
+            {task.rescheduledStartAt ? (
+              <View style={styles.scheduleMetaRow}>
+                <Text style={[Typography.small, { color: palette.warningText }]}>
+                  Auto-rescheduled (+1h)
+                </Text>
+                <Text style={[Typography.caption, { color: palette.warningText, fontWeight: '700' }]}>
+                  {formatFullDateTime(task.rescheduledStartAt)}
+                </Text>
+              </View>
+            ) : null}
             <View style={styles.scheduleMetaRow}>
               <Text style={[Typography.small, { color: palette.textMuted }]}>
                 Free-will nudges ({dailyReminders}/day)
@@ -396,10 +435,11 @@ export default function TaskDetailScreen() {
       <ConfirmationModal
         visible={confirmDelete}
         title="Delete this task?"
-        description={`"${task.title}" will be permanently removed from your local task list.`}
-        confirmLabel="Delete"
+        description={`Deleting "${task.title}" permanently removes the task and cancels all of its scheduled reminders and focus alarms.`}
+        confirmLabel="Delete Task"
+        cancelLabel="Cancel"
         destructive
-        icon="alert"
+        icon="trash"
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => void handleDelete()}
       />
@@ -419,6 +459,19 @@ const styles = StyleSheet.create({
   inner: {
     width: '100%',
     maxWidth: Layout.maxContentWidth,
+  },
+  deletePillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: Spacing.md,
+    height: 36,
+    borderRadius: Radii.full,
+    borderWidth: 1,
+  },
+  deletePillPressed: {
+    opacity: 0.78,
+    transform: [{ scale: 0.96 }],
   },
   badgeGroup: {
     flexDirection: 'row',

@@ -196,36 +196,46 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.barChart}>
                 {(summary?.dailyBreakdown ?? []).map((point, idx) => {
-                  const pct = Math.max(10, Math.round((point.minutes / maxDailyMins) * 100));
+                  const pct = Math.max(12, Math.round((point.minutes / maxDailyMins) * 100));
                   const isPeak =
                     point.minutes > 0 &&
                     point.minutes ===
                       Math.max(...(summary?.dailyBreakdown ?? []).map((d) => d.minutes));
                   return (
                     <View key={`${point.dateKey}-${idx}`} style={styles.barCol}>
-                      <Text style={[Typography.small, { color: palette.textMuted, fontSize: 9 }]}>
-                        {point.minutes > 0 ? `${point.minutes}m` : ''}
+                      <Text
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.75}
+                        style={[Typography.small, styles.barValueLabel, { color: palette.textMuted }]}
+                      >
+                        {point.minutes > 0 ? `${point.minutes}m` : ' '}
                       </Text>
-                      {isPeak ? (
-                        <LinearGradient
-                          colors={palette.energyGradient}
-                          style={[styles.barItem, { height: `${pct}%` }]}
-                        />
-                      ) : (
-                        <View
-                          style={[
-                            styles.barItem,
-                            {
-                              height: `${pct}%`,
-                              backgroundColor:
-                                palette.mode === 'dark'
-                                  ? 'rgba(255,255,255,0.2)'
-                                  : palette.sageTint,
-                            },
-                          ]}
-                        />
-                      )}
-                      <Text style={[Typography.small, { color: palette.textMuted }]}>
+                      <View style={styles.barTrack}>
+                        {isPeak ? (
+                          <LinearGradient
+                            colors={palette.energyGradient}
+                            style={[styles.barItem, { height: `${pct}%` }]}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.barItem,
+                              {
+                                height: `${pct}%`,
+                                backgroundColor:
+                                  palette.mode === 'dark'
+                                    ? 'rgba(255,255,255,0.2)'
+                                    : palette.sageTint,
+                              },
+                            ]}
+                          />
+                        )}
+                      </View>
+                      <Text
+                        numberOfLines={1}
+                        style={[Typography.small, styles.dayAxisLabel, { color: palette.textMuted }]}
+                      >
                         {point.dayLabel}
                       </Text>
                     </View>
@@ -286,6 +296,7 @@ export default function ProfileScreen() {
                 <View style={styles.historyPad}>
                   {sessions.slice(0, 8).map((item, idx, arr) => {
                     const isCompleted = item.status === 'completed';
+                    const isSkipped = item.status === 'skipped';
                     return (
                       <View
                         key={item.id}
@@ -303,14 +314,22 @@ export default function ProfileScreen() {
                             {
                               backgroundColor: isCompleted
                                 ? palette.successSoft
-                                : palette.dangerSoft,
+                                : isSkipped
+                                  ? palette.warningSoft
+                                  : palette.dangerSoft,
                             },
                           ]}
                         >
                           <AppIcon
-                            name={isCompleted ? 'check' : 'close'}
+                            name={isCompleted ? 'check' : isSkipped ? 'clock' : 'close'}
                             size={15}
-                            color={isCompleted ? palette.successText : palette.dangerText}
+                            color={
+                              isCompleted
+                                ? palette.successText
+                                : isSkipped
+                                  ? palette.warningText
+                                  : palette.dangerText
+                            }
                           />
                         </View>
                         <View style={styles.historyCopy}>
@@ -328,7 +347,11 @@ export default function ProfileScreen() {
                             style={[
                               Typography.small,
                               {
-                                color: isCompleted ? palette.successText : palette.dangerText,
+                                color: isCompleted
+                                  ? palette.successText
+                                  : isSkipped
+                                    ? palette.warningText
+                                    : palette.dangerText,
                                 fontWeight: '700',
                               },
                             ]}
@@ -709,23 +732,38 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   barChart: {
-    height: 132,
+    height: 146,
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
+    alignItems: 'stretch',
+    width: '100%',
   },
   barCol: {
     flex: 1,
-    height: '100%',
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    gap: 5,
+    gap: 6,
+  },
+  barValueLabel: {
+    fontSize: 9,
+    width: '100%',
+    textAlign: 'center',
+  },
+  barTrack: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   barItem: {
-    width: 16,
+    width: 14,
     borderRadius: 6,
     minHeight: 8,
+  },
+  dayAxisLabel: {
+    width: '100%',
+    textAlign: 'center',
+    fontWeight: '600',
   },
   categoryCard: {
     marginTop: Spacing.md,
