@@ -34,6 +34,7 @@ import {
   computeTargetCompletionIso,
   computeUpcomingSessionDateFromTime,
   DEFAULT_DAILY_SESSION_TIME,
+  findScheduledSessionOverlap,
   formatTimeShort,
   hasSufficientDeadlineBuffer,
   MIN_DAILY_REMINDERS,
@@ -41,6 +42,7 @@ import {
 } from '@/features/tasks/antiProcrastinationScheduler';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useTaskStore } from '@/store/taskStore';
 import type { CheckpointTargetItem, Task, TaskPriority } from '@/types/task';
 import { formatFullDateTime } from '@/utils/date';
 import {
@@ -83,6 +85,7 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
   const palette = useAppTheme();
   const insets = useSafeAreaInsets();
   const preferences = useSettingsStore((s) => s.preferences);
+  const existingTasks = useTaskStore((s) => s.tasks);
 
   const initialSplit = useMemo(
     () => extractDateKeyAndTimeFromIso(initialTask?.deadline ?? null),
@@ -136,6 +139,34 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
     [dailySessionStartTime, referenceNowMs],
   );
 
+  // Strict full-duration session time-slot overlap guard
+  const sessionOverlap = useMemo(
+    () =>
+      findScheduledSessionOverlap(
+        {
+          excludeTaskId: initialTask?.id,
+          dailySessionStartTime,
+          estimatedMinutes: parsedEstimatedMinutes,
+          deadline,
+        },
+        existingTasks,
+        {
+          fallbackHHmm: preferences.defaultDailySessionStartTime,
+          fallbackDurationMinutes: preferences.focusDefaultMinutes,
+          now: new Date(referenceNowMs),
+        },
+      ),
+    [
+      initialTask?.id,
+      dailySessionStartTime,
+      parsedEstimatedMinutes,
+      deadline,
+      existingTasks,
+      preferences.defaultDailySessionStartTime,
+      preferences.focusDefaultMinutes,
+      referenceNowMs,
+    ],
+  );
 
   const titleCheck = validateTaskTitle(title);
   const estimateCheck = validateEstimatedMinutes(estimatedInput);
@@ -216,6 +247,20 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
       estimatedMinutes: parsedEstimatedMinutes,
       firstSessionDate: liveSessionDate,
     });
+    const liveOverlap = findScheduledSessionOverlap(
+      {
+        excludeTaskId: initialTask?.id,
+        dailySessionStartTime,
+        estimatedMinutes: parsedEstimatedMinutes,
+        deadline,
+      },
+      existingTasks,
+      {
+        fallbackHHmm: preferences.defaultDailySessionStartTime,
+        fallbackDurationMinutes: preferences.focusDefaultMinutes,
+        now: liveNow,
+      },
+    );
 
     if (
       !titleCheck.valid ||
@@ -224,7 +269,8 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
       !liveDeadlineCheck.valid ||
       !reminderCheck.valid ||
       !estimateCheck.valid ||
-      !deadline
+      !deadline ||
+      liveOverlap !== null
     ) {
       return;
     }
@@ -380,7 +426,7 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                   styles.scheduleCard,
                   {
                     backgroundColor: palette.surfaceGlass,
-                    borderColor: palette.border,
+                    borderColor: sessionOverlap ? palette.danger : palette.border,
                   },
                 ]}
               >
@@ -403,6 +449,32 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                   helperText="Exact time your daily focus alarm triggers until this task is done."
                 />
 
+                {sessionOverlap ? (
+                  <View
+                    style={[
+                      styles.bufferCard,
+                      {
+                        backgroundColor: palette.dangerSoft,
+                        borderColor: palette.danger,
+                      },
+                    ]}
+                  >
+                    <View style={styles.bufferHeader}>
+                      <AppIcon name="alert" size={16} color={palette.dangerText} />
+                      <Text
+                        style={[
+                          Typography.caption,
+                          { color: palette.dangerText, fontWeight: '700', flex: 1 },
+                        ]}
+                      >
+                        Session time slot already occupied
+                      </Text>
+                    </View>
+                    <Text style={[Typography.small, { color: palette.dangerText }]}>
+                      {sessionOverlap.errorMessage}
+                    </Text>
+                  </View>
+                ) : null}
 
                 <SelectField
                   label="Required item to scan before session"
