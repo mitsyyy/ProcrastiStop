@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -13,25 +13,40 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ScreenBackground } from '@/components/ui/ScreenBackground';
 import { SecondaryButton } from '@/components/ui/SecondaryButton';
 import { Layout, Radii, Spacing, Typography } from '@/constants/theme';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import {
+  formatTimeShort,
+  getLocalDateKey,
+  SKIP_RESCHEDULE_DELAY_MS,
+} from '@/features/tasks/antiProcrastinationScheduler';
 import { useFocusTicker } from '@/hooks/useFocusTicker';
 import { useBlockerStore } from '@/store/blockerStore';
 import { useFocusStore } from '@/store/focusStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useTaskStore } from '@/store/taskStore';
 
 export default function ActiveFocusScreen() {
-  const palette = useAppTheme();
   const insets = useSafeAreaInsets();
+  const { taskId: alarmTaskId, autoStart } = useLocalSearchParams<{
+    taskId?: string;
+    autoStart?: string;
+  }>();
   const [endModalVisible, setEndModalVisible] = useState(false);
+  const [nextRetryLabel, setNextRetryLabel] = useState('1 hour from now');
+  const autoStartTriggeredRef = useRef(false);
+
+  const openEndModal = () => {
+    setNextRetryLabel(formatTimeShort(new Date(Date.now() + SKIP_RESCHEDULE_DELAY_MS)));
+    setEndModalVisible(true);
+  };
 
   const activeSession = useFocusStore((s) => s.activeSession);
   const remainingSeconds = useFocusStore((s) => s.remainingSeconds);
+  const startSession = useFocusStore((s) => s.startSession);
   const pauseSession = useFocusStore((s) => s.pauseSession);
   const resumeSession = useFocusStore((s) => s.resumeSession);
   const enterCheckpoint = useFocusStore((s) => s.enterCheckpoint);
   const recordInterruption = useFocusStore((s) => s.recordInterruption);
-  const completeSession = useFocusStore((s) => s.completeSession);
-  const cancelSession = useFocusStore((s) => s.cancelSession);
+  const skipSessionAndReschedule = useFocusStore((s) => s.skipSessionAndReschedule);
 
   const blockerSettings = useBlockerStore((s) => s.settings);
   const runtimeStatus = useBlockerStore((s) => s.runtimeStatus);
@@ -40,8 +55,66 @@ export default function ActiveFocusScreen() {
   const dismissBlockedAppModal = useBlockerStore((s) => s.dismissBlockedAppModal);
   const toggleBlockDuringFocus = useBlockerStore((s) => s.toggleBlockDuringFocus);
 
-  const checkpointEnabled = useSettingsStore((s) => s.preferences.checkpointEnabled);
+  const preferences = useSettingsStore((s) => s.preferences);
   const showToast = useSettingsStore((s) => s.showToast);
+
+  // Support Android full-screen alarm deep-link: procrastistop://focus/active?taskId=...&autoStart=1
+  useEffect(() => {
+    if (autoStart !== '1' || autoStartTriggeredRef.current) return;
+    if (activeSession?.status === 'active' || activeSession?.status === 'paused') {
+      autoStartTriggeredRef.current = true;
+      return;
+    }
+    autoStartTriggeredRef.current = true;
+
+    const launchFromAlarm = async () => {
+      const tasks = useTaskStore.getState().tasks;
+      const targetTask =
+        (alarmTaskId ? tasks.find((t) => t.id === alarmTaskId) : undefined) ??
+        tasks.find(
+          (t) => t.status !== 'completed' && t.status !== 'cancelled' && t.status !== 'missed',
+        ) ??
+        null;
+
+      if (targetTask) {
+        const minutes =
+          targetTask.estimatedMinutes && targetTask.estimatedMinutes >= 10
+            ? Math.min(targetTask.estimatedMinutes, 90)
+            : preferences.focusDefaultMinutes;
+
+        await useTaskStore.getState().updateTask(targetTask.id, {
+          lastAutoStartedDate: getLocalDateKey(new Date()),
+          rescheduledStartAt: null,
+          status: 'in_progress',
+        });
+
+        await startSession({
+          taskId: targetTask.id,
+          taskTitleSnapshot: targetTask.title,
+          plannedDurationMinutes: minutes,
+          checkpointEnabled: preferences.checkpointEnabled,
+        });
+        showToast(`Focus alarm started "${targetTask.title}".`, 'info');
+      } else {
+        await startSession({
+          taskId: null,
+          taskTitleSnapshot: 'Scheduled Focus Session',
+          plannedDurationMinutes: preferences.focusDefaultMinutes,
+          checkpointEnabled: preferences.checkpointEnabled,
+        });
+      }
+    };
+
+    void launchFromAlarm();
+  }, [
+    autoStart,
+    alarmTaskId,
+    activeSession,
+    preferences.focusDefaultMinutes,
+    preferences.checkpointEnabled,
+    startSession,
+    showToast,
+  ]);
 
   const handleAutoCompleted = useCallback(() => {
     router.replace('/focus/completed');
@@ -69,6 +142,7 @@ export default function ActiveFocusScreen() {
     );
   }
 
+  const isSessionRunning = activeSession.status === 'active';
   const isPaused = activeSession.status === 'paused';
   const selectedCount = blockerSettings.selectedApps.filter((a) => a.selected).length;
 
@@ -80,10 +154,10 @@ export default function ActiveFocusScreen() {
 
   const handleTogglePause = async () => {
     triggerHaptic();
-    if (isPaused) {
-      await resumeSession();
-    } else {
+    if (isSessionRunning) {
       await pauseSession();
+    } else {
+      await resumeSession();
     }
   };
 
@@ -98,20 +172,25 @@ export default function ActiveFocusScreen() {
     await triggerSimulatedBlockedApp();
   };
 
-  const handleCompleteEarly = async () => {
+  const handleSkipEarly = async () => {
     setEndModalVisible(false);
-    await completeSession();
+    const { rescheduledForIso, markedMissed } = await skipSessionAndReschedule();
+    if (markedMissed || !rescheduledForIso) {
+      showToast(
+        'Due date reached — marked Missed with no further +1h retries.',
+        'warning',
+      );
+    } else {
+      const formattedNext = formatTimeShort(new Date(rescheduledForIso));
+      showToast(
+        `Marked Skipped — rescheduled for ${formattedNext} with a 5-min warning & alarm.`,
+        'warning',
+      );
+    }
     router.replace('/focus/completed');
   };
 
-  const handleCancelSession = async () => {
-    setEndModalVisible(false);
-    await cancelSession();
-    showToast('Focus session cancelled. Partial progress saved to history.', 'info');
-    router.replace('/(tabs)/home');
-  };
-
-  const minsLeft = Math.ceil(remainingSeconds / 60);
+  const minsLeft = Math.max(1, Math.ceil(remainingSeconds / 60));
 
   return (
     <ScreenBackground variant="focus">
@@ -134,7 +213,7 @@ export default function ActiveFocusScreen() {
               <Text style={[Typography.h3, { color: '#ffffff' }]}>ProcrastiStop</Text>
             </View>
             <Pressable
-              onPress={() => setEndModalVisible(true)}
+              onPress={openEndModal}
               accessibilityLabel="End session"
               style={styles.closeBtn}
             >
@@ -180,7 +259,7 @@ export default function ActiveFocusScreen() {
             <Pressable onPress={() => void handleTriggerCheckpoint()} style={styles.statusChip}>
               <AppIcon name="camera" size={14} color="#ffc83d" />
               <Text style={[Typography.small, styles.chipText]}>
-                {checkpointEnabled ? 'Checkpoint ready' : 'Optional check-in'}
+                {preferences.checkpointEnabled ? 'Checkpoint ready' : 'Optional check-in'}
               </Text>
             </Pressable>
           </View>
@@ -188,11 +267,11 @@ export default function ActiveFocusScreen() {
           {/* Controls */}
           <View style={styles.controlsWrap}>
             <SessionControlBar
-              isPaused={isPaused}
+              isRunning={isSessionRunning}
               onTogglePause={() => void handleTogglePause()}
-              onEndSession={() => setEndModalVisible(true)}
+              onEndSession={openEndModal}
               onTriggerCheckpoint={() => void handleTriggerCheckpoint()}
-              checkpointEnabled={checkpointEnabled}
+              checkpointEnabled={preferences.checkpointEnabled}
             />
           </View>
 
@@ -209,33 +288,18 @@ export default function ActiveFocusScreen() {
         </View>
       </ScrollView>
 
-      {/* End / Cancel Session Choice Modal */}
+      {/* Early Termination -> Skipped + 1-Hour Auto-Reschedule Modal */}
       <ConfirmationModal
         visible={endModalVisible}
         title="End this focus session?"
-        description={`You still have ${minsLeft} minute${minsLeft === 1 ? '' : 's'} remaining. Save completed time or cancel this session.`}
-        confirmLabel="Complete & save"
-        cancelLabel="Keep focusing"
+        description={`You still have ${minsLeft} minute${minsLeft === 1 ? '' : 's'} remaining. Ending early marks this session as Skipped and automatically reschedules it for ${nextRetryLabel} (1 hour later) with a 5-min warning and alarm.`}
+        confirmLabel="Skip & Reschedule"
+        cancelLabel="Keep Focusing"
+        destructive
+        icon="clock"
         onCancel={() => setEndModalVisible(false)}
-        onConfirm={() => void handleCompleteEarly()}
+        onConfirm={() => void handleSkipEarly()}
       />
-
-      {/* Extra Cancel Option Modal Footer inside custom overlay if user wants pure cancel */}
-      {endModalVisible ? (
-        <View style={[styles.cancelStrip, { bottom: Math.max(insets.bottom, Spacing.lg) }]}>
-          <Pressable
-            onPress={() => void handleCancelSession()}
-            style={[
-              styles.cancelPill,
-              { backgroundColor: palette.surfaceElevated, borderColor: palette.danger },
-            ]}
-          >
-            <Text style={[Typography.caption, { color: palette.dangerText, fontWeight: '700' }]}>
-              Or discard & mark session cancelled
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
 
       {/* Simulated Blocker Overlay Modal */}
       <SimulatedBlockerModal
@@ -354,18 +418,5 @@ const styles = StyleSheet.create({
   simulateText: {
     color: '#ffc83d',
     fontWeight: '700',
-  },
-  cancelStrip: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 100,
-  },
-  cancelPill: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm + 2,
-    borderRadius: Radii.full,
-    borderWidth: 1,
   },
 });

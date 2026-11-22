@@ -40,7 +40,7 @@ class MockAnalyticsRepository implements AnalyticsRepository {
 
     const completedSessions = sessions.filter((s) => s.status === 'completed');
     const finishedOrPartial = sessions.filter(
-      (s) => s.status === 'completed' || s.status === 'cancelled',
+      (s) => s.status === 'completed' || s.status === 'cancelled' || s.status === 'skipped',
     );
 
     const totalFocusedSeconds = finishedOrPartial.reduce(

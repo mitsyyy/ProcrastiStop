@@ -1,4 +1,6 @@
 import {
+  AndroidAudioContentType,
+  AndroidAudioUsage,
   AndroidImportance,
   AndroidNotificationPriority,
   AndroidNotificationVisibility,
@@ -19,6 +21,8 @@ import {
   computePreSessionAlertDate,
   DEFAULT_DAILY_SESSION_TIME,
   formatTimeShort,
+  isTaskClosedOrTerminal,
+  isTaskPastDue,
   normalizeDailyReminderCount,
 } from '@/features/tasks/antiProcrastinationScheduler';
 import { readJsonItem, STORAGE_KEYS, writeJsonItem } from '@/services/local/storage';
@@ -28,6 +32,7 @@ import type { Task } from '@/types/task';
 import { formatDeadlineLabel, getTaskDeadlineState } from '@/utils/date';
 
 export const PROCRASTISTOP_NOTIFICATION_CHANNEL_ID = 'procrastistop-reminders';
+export const PROCRASTISTOP_ALARM_CHANNEL_ID = 'procrastistop-alarms';
 
 export interface NotificationPermissionState {
   status: 'granted' | 'denied' | 'undetermined' | 'unavailable';
@@ -53,6 +58,10 @@ export interface NotificationSyncSummary {
   permissionStatus: NotificationPermissionState['status'];
 }
 
+export interface NotificationSyncOptions {
+  requestPermissionIfUndetermined?: boolean;
+}
+
 let handlerConfigured = false;
 let syncInFlight: Promise<NotificationSyncSummary> | null = null;
 
@@ -72,6 +81,7 @@ export function configureNotificationHandler(): void {
 
 export async function ensureAndroidNotificationChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
+
   await setNotificationChannelAsync(PROCRASTISTOP_NOTIFICATION_CHANNEL_ID, {
     name: 'Focus & Pre-Session Reminders',
     description:
@@ -80,9 +90,28 @@ export async function ensureAndroidNotificationChannel(): Promise<void> {
     sound: 'default',
     enableVibrate: true,
     enableLights: true,
+    bypassDnd: true,
     lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
     vibrationPattern: [0, 250, 180, 250],
     lightColor: '#ff7a1a',
+  });
+
+  await setNotificationChannelAsync(PROCRASTISTOP_ALARM_CHANNEL_ID, {
+    name: 'Focus Auto-Start Alarms',
+    description:
+      'Full-screen wake-up alarms that automatically open ProcrastiStop into your active focus timer.',
+    importance: AndroidImportance.MAX,
+    sound: 'default',
+    enableVibrate: true,
+    enableLights: true,
+    bypassDnd: true,
+    lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
+    vibrationPattern: [0, 450, 220, 450, 220, 450],
+    lightColor: '#ff7a1a',
+    audioAttributes: {
+      usage: AndroidAudioUsage.ALARM,
+      contentType: AndroidAudioContentType.SONIFICATION,
+    },
   });
 }
 
@@ -169,9 +198,10 @@ export async function sendTestLocalNotification(
       data: { route: '/(tabs)/focus' },
     },
     trigger: {
-      type: SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: Math.max(1, Math.round(delaySeconds)),
+      type: SchedulableTriggerInputTypes.DATE,
+      date: new Date(Date.now() + Math.max(2, Math.round(delaySeconds)) * 1000),
       channelId: Platform.OS === 'android' ? PROCRASTISTOP_NOTIFICATION_CHANNEL_ID : undefined,
+      delivery: Platform.OS === 'android' ? 'alarmClock' : undefined,
     },
   });
 
@@ -186,7 +216,7 @@ export async function sendTestLocalNotification(
 export async function sendTestPreSessionWarning(
   taskTitle: string,
   leadMinutes = 5,
-  delaySeconds = 3,
+  delaySeconds = 5,
 ): Promise<LocalNotificationResult> {
   if (Platform.OS === 'web') {
     return {
@@ -221,9 +251,68 @@ export async function sendTestPreSessionWarning(
       data: { route: '/focus/setup', kind: 'pre_session' },
     },
     trigger: {
-      type: SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: Math.max(1, Math.round(delaySeconds)),
+      type: SchedulableTriggerInputTypes.DATE,
+      date: new Date(Date.now() + Math.max(2, Math.round(delaySeconds)) * 1000),
       channelId: Platform.OS === 'android' ? PROCRASTISTOP_NOTIFICATION_CHANNEL_ID : undefined,
+      delivery: Platform.OS === 'android' ? 'alarmClock' : undefined,
+    },
+  });
+
+  return {
+    scheduled: true,
+    id,
+    permissionStatus: 'granted',
+    canAskAgain: true,
+  };
+}
+
+export async function sendTestFullScreenFocusAlarm(
+  taskId: string | null,
+  taskTitle: string,
+  delaySeconds = 5,
+): Promise<LocalNotificationResult> {
+  if (Platform.OS === 'web') {
+    return {
+      scheduled: false,
+      permissionStatus: 'unavailable',
+      canAskAgain: false,
+      reason: 'Full-screen focus alarms require an Android or iOS device.',
+    };
+  }
+
+  configureNotificationHandler();
+  const perm = await requestNotificationPermission();
+  if (perm.status !== 'granted') {
+    return {
+      scheduled: false,
+      permissionStatus: perm.status,
+      canAskAgain: perm.canAskAgain,
+      reason: perm.canAskAgain
+        ? 'Notification permission was not granted.'
+        : 'Notifications are disabled in Android Settings.',
+    };
+  }
+
+  await ensureAndroidNotificationChannel();
+  const id = await scheduleNotificationAsync({
+    content: {
+      title: `Focus alarm: ${taskTitle}`,
+      body: 'Scan your required workspace item to silence the alarm and start your focus timer.',
+      sound: 'default',
+      priority: AndroidNotificationPriority.MAX,
+      interruptionLevel: 'timeSensitive',
+      data: {
+        kind: 'auto_start',
+        fullScreenAlarm: true,
+        taskId: taskId ?? '',
+        route: `/focus/checkpoint?mode=gate&alarm=1${taskId ? `&taskId=${taskId}` : ''}`,
+      },
+    },
+    trigger: {
+      type: SchedulableTriggerInputTypes.DATE,
+      date: new Date(Date.now() + Math.max(3, Math.round(delaySeconds)) * 1000),
+      channelId: Platform.OS === 'android' ? PROCRASTISTOP_ALARM_CHANNEL_ID : undefined,
+      delivery: Platform.OS === 'android' ? 'alarmClock' : undefined,
     },
   });
 
@@ -272,9 +361,10 @@ export async function scheduleReminderNotification(params: {
       data: params.route ? { route: params.route } : {},
     },
     trigger: {
-      type: SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: Math.max(1, Math.round(params.delaySeconds ?? 5)),
+      type: SchedulableTriggerInputTypes.DATE,
+      date: new Date(Date.now() + Math.max(2, Math.round(params.delaySeconds ?? 5)) * 1000),
       channelId: Platform.OS === 'android' ? PROCRASTISTOP_NOTIFICATION_CHANNEL_ID : undefined,
+      delivery: Platform.OS === 'android' ? 'alarmClock' : undefined,
     },
   });
 
@@ -311,6 +401,7 @@ export async function scheduleFocusCompletionNotification(
       type: SchedulableTriggerInputTypes.DATE,
       date: new Date(endTimestampMs),
       channelId: Platform.OS === 'android' ? PROCRASTISTOP_NOTIFICATION_CHANNEL_ID : undefined,
+      delivery: Platform.OS === 'android' ? 'alarmClock' : undefined,
     },
   });
 }
@@ -333,10 +424,17 @@ async function clearManagedScheduledNotifications(): Promise<void> {
   await writeJsonItem(STORAGE_KEYS.SCHEDULED_NOTIFICATION_IDS, []);
 }
 
-function getPrioritizedOpenTasks(tasks: Task[]): Task[] {
+function getPrioritizedOpenTasks(tasks: Task[], nowMs = Date.now()): Task[] {
   return tasks
-    .filter((t) => t.status !== 'completed' && t.status !== 'cancelled')
+    .filter((t) => !isTaskClosedOrTerminal(t) && !isTaskPastDue(t, nowMs))
     .sort((a, b) => {
+      // Prioritize tasks explicitly rescheduled (+1h after skip) first
+      const aResched = a.rescheduledStartAt ? new Date(a.rescheduledStartAt).getTime() : null;
+      const bResched = b.rescheduledStartAt ? new Date(b.rescheduledStartAt).getTime() : null;
+      if (aResched && !bResched) return -1;
+      if (!aResched && bResched) return 1;
+      if (aResched && bResched && aResched !== bResched) return aResched - bResched;
+
       const aTime = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
       const bTime = b.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
       return aTime - bTime;
@@ -362,15 +460,17 @@ function formatTriggerDayAndTime(date: Date, now: Date): string {
 }
 
 /**
- * Synchronizes real OS-level notifications for all active tasks:
- * 1) Exact pre-session warning at (scheduledSessionTime - remindBeforeSessionMinutes)
+ * Synchronizes exact OS-level alarms & notifications for all active tasks so they fire
+ * reliably even when the app is backgrounded, Doze-idle, or killed:
+ * 1) Exact 5-min pre-session warning via AlarmManager.setAlarmClock() / iOS DATE trigger
  * 2) Spaced daily free-will nudges (minimum 3/day) before each task's daily focus start
- * 3) Auto-start focus alert at the exact scheduled session start time
+ * 3) Alarm-style full-screen auto-start wake-up trigger at exact scheduled session time
  */
 export async function syncScheduledPreSessionAndNudgeNotifications(
   tasks: Task[],
   preferences: UserPreferences,
   activeSession?: FocusSession | null,
+  options?: NotificationSyncOptions,
 ): Promise<NotificationSyncSummary> {
   const runSync = async (): Promise<NotificationSyncSummary> => {
     const now = new Date();
@@ -390,59 +490,70 @@ export async function syncScheduledPreSessionAndNudgeNotifications(
       triggerDate: Date;
       title: string;
       body: string;
-      data: Record<string, string>;
+      channelId: string;
+      useAlarmClock: boolean;
+      data: Record<string, string | boolean>;
     }[] = [];
 
     for (const task of openTasks) {
       const nextSession = computeNextDailySessionDate(task, fallbackStart, now);
       if (!nextSession) continue;
 
-      const preSessionDate = computePreSessionAlertDate(nextSession, leadMinutes);
-      const effectivePreDate =
-        preSessionDate.getTime() > nowMs + 2000
-          ? preSessionDate
-          : new Date(preSessionDate.getTime() + 24 * 60 * 60 * 1000);
-      const effectiveSessionDate =
-        preSessionDate.getTime() > nowMs + 2000
-          ? nextSession
-          : new Date(nextSession.getTime() + 24 * 60 * 60 * 1000);
+      const isRescheduledSkip =
+        Boolean(task.rescheduledStartAt) &&
+        new Date(task.rescheduledStartAt!).getTime() > nowMs;
 
-      if (
-        !earliestPreSession ||
-        effectivePreDate.getTime() < earliestPreSession.date.getTime()
-      ) {
-        earliestPreSession = {
-          date: effectivePreDate,
-          sessionDate: effectiveSessionDate,
-          title: task.title,
-        };
+      const preSessionDate = computePreSessionAlertDate(nextSession, leadMinutes);
+      const preSessionIsValid =
+        preSessionDate.getTime() > nowMs + 2000 && preSessionDate.getTime() < nextSession.getTime();
+
+      if (preSessionIsValid) {
+        if (
+          !earliestPreSession ||
+          preSessionDate.getTime() < earliestPreSession.date.getTime()
+        ) {
+          earliestPreSession = {
+            date: preSessionDate,
+            sessionDate: nextSession,
+            title: task.title,
+          };
+        }
+
+        // 1. Exact 5-minute (or configured lead time) pre-session warning (strictly R < T_start)
+        plannedAlerts.push({
+          kind: 'pre_session',
+          triggerDate: preSessionDate,
+          title: isRescheduledSkip
+            ? `Rescheduled focus in ${leadMinutes} min`
+            : `Focus block in ${leadMinutes} min`,
+          body: `"${task.title}" starts at ${formatTimeShort(nextSession)}. Wrap up distractions now.`,
+          channelId: PROCRASTISTOP_NOTIFICATION_CHANNEL_ID,
+          useAlarmClock: true,
+          data: {
+            kind: 'pre_session',
+            taskId: task.id,
+            route: `/focus/setup?taskId=${task.id}`,
+          },
+        });
       }
 
-      // 1. Exact 5-minute (or configured lead time) pre-session warning
-      plannedAlerts.push({
-        kind: 'pre_session',
-        triggerDate: effectivePreDate,
-        title: `Focus block in ${leadMinutes} min`,
-        body: `"${task.title}" starts at ${formatTimeShort(effectiveSessionDate)}. Wrap up distractions now.`,
-        data: {
-          kind: 'pre_session',
-          taskId: task.id,
-          route: `/focus/setup?taskId=${task.id}`,
-        },
-      });
-
-      // 2. Spaced daily free-will nudges (minimum 3/day)
+      // 2. Dynamic proportional pre-session reminders: Step = (T_start - T_now) / (N + 1), R_k < T_start
       const reminderCount = normalizeDailyReminderCount(
         task.dailyReminderCount ?? preferences.defaultDailyReminderCount,
       );
-      const nudges = computeDailyNudgeDates(nextSession, reminderCount);
-      nudges.forEach((nudgeDate, idx) => {
-        if (nudgeDate.getTime() > nowMs + 2000) {
+      const nudges = computeDailyNudgeDates(nextSession, reminderCount, now);
+      for (let idx = 0; idx < nudges.length; idx++) {
+        const nudgeDate = nudges[idx];
+        if (nudgeDate.getTime() > nowMs + 2000 && nudgeDate.getTime() < nextSession.getTime()) {
           plannedAlerts.push({
             kind: 'nudge',
             triggerDate: nudgeDate,
-            title: `Nudge ${idx + 1}/${reminderCount}: Start early?`,
+            title: isRescheduledSkip
+              ? `Rescheduled nudge ${idx + 1}/${reminderCount}`
+              : `Nudge ${idx + 1}/${reminderCount}: Start early?`,
             body: `Get a head start on "${task.title}" before your ${formatTimeShort(nextSession)} focus session.`,
+            channelId: PROCRASTISTOP_NOTIFICATION_CHANNEL_ID,
+            useAlarmClock: false,
             data: {
               kind: 'nudge',
               taskId: task.id,
@@ -450,9 +561,9 @@ export async function syncScheduledPreSessionAndNudgeNotifications(
             },
           });
         }
-      });
+      }
 
-      // 3. Exact daily session start escalation notification
+      // 3. Alarm-style full-screen auto-start wake-up trigger at exact scheduled session time
       if (
         task.autoStartEnabled !== false &&
         task.id !== activeTaskId &&
@@ -462,17 +573,29 @@ export async function syncScheduledPreSessionAndNudgeNotifications(
           kind: 'auto_start',
           triggerDate: nextSession,
           title: `Time to focus: ${task.title}`,
-          body: `Your scheduled ${formatTimeShort(nextSession)} session has arrived. Tap to launch your focus timer.`,
+          body: `Your ${formatTimeShort(nextSession)} alarm is ringing — scan your desk item to unlock and start.`,
+          channelId: PROCRASTISTOP_ALARM_CHANNEL_ID,
+          useAlarmClock: true,
           data: {
             kind: 'auto_start',
+            fullScreenAlarm: true,
             taskId: task.id,
-            route: '/focus/active',
+            route: `/focus/checkpoint?mode=gate&alarm=1&taskId=${task.id}`,
           },
         });
       }
     }
 
-    const perm = await getNotificationPermissionState();
+    let perm = await getNotificationPermissionState();
+    if (
+      options?.requestPermissionIfUndetermined &&
+      preferences.notificationsEnabled &&
+      Platform.OS !== 'web' &&
+      perm.status === 'undetermined'
+    ) {
+      perm = await requestNotificationPermission();
+    }
+
     await clearManagedScheduledNotifications();
 
     if (!preferences.notificationsEnabled || Platform.OS === 'web' || perm.status !== 'granted') {
@@ -514,8 +637,13 @@ export async function syncScheduledPreSessionAndNudgeNotifications(
           trigger: {
             type: SchedulableTriggerInputTypes.DATE,
             date: alert.triggerDate,
-            channelId:
-              Platform.OS === 'android' ? PROCRASTISTOP_NOTIFICATION_CHANNEL_ID : undefined,
+            channelId: Platform.OS === 'android' ? alert.channelId : undefined,
+            delivery:
+              Platform.OS === 'android'
+                ? alert.useAlarmClock
+                  ? 'alarmClock'
+                  : 'bestEffort'
+                : undefined,
           },
         });
         scheduledIds.push(id);
@@ -588,24 +716,23 @@ export function buildReminderPreviews(
       if (!nextSession) continue;
 
       const rawPre = computePreSessionAlertDate(nextSession, leadMinutes);
-      const alertDate =
-        rawPre.getTime() > nowMs ? rawPre : new Date(rawPre.getTime() + 24 * 60 * 60 * 1000);
-      const sessionDate =
-        rawPre.getTime() > nowMs
-          ? nextSession
-          : new Date(nextSession.getTime() + 24 * 60 * 60 * 1000);
-
-      if (!nextPre || alertDate.getTime() < nextPre.alertDate.getTime()) {
-        nextPre = { alertDate, sessionDate, task };
+      if (rawPre.getTime() > nowMs && rawPre.getTime() < nextSession.getTime()) {
+        if (!nextPre || rawPre.getTime() < nextPre.alertDate.getTime()) {
+          nextPre = { alertDate: rawPre, sessionDate: nextSession, task };
+        }
       }
 
       const total = normalizeDailyReminderCount(
         task.dailyReminderCount ?? preferences.defaultDailyReminderCount,
       );
-      const nudges = computeDailyNudgeDates(nextSession, total);
+      const nudges = computeDailyNudgeDates(nextSession, total, now);
       for (let idx = 0; idx < nudges.length; idx++) {
         const d = nudges[idx];
-        if (d.getTime() > nowMs && (!nextNudge || d.getTime() < nextNudge.nudgeDate.getTime())) {
+        if (
+          d.getTime() > nowMs &&
+          d.getTime() < nextSession.getTime() &&
+          (!nextNudge || d.getTime() < nextNudge.nudgeDate.getTime())
+        ) {
           nextNudge = { nudgeDate: d, task, index: idx + 1, total };
         }
       }
@@ -616,7 +743,7 @@ export function buildReminderPreviews(
         id: `rem_pre_session_${nextPre.task.id}`,
         kind: 'session',
         title: `${leadMinutes}-min pre-session warning`,
-        body: `"${nextPre.task.title}" starts at ${formatTimeShort(nextPre.sessionDate)}. Alert fires ${leadMinutes} min beforehand.`,
+        body: `"${nextPre.task.title}" starts at ${formatTimeShort(nextPre.sessionDate)}. Exact background alarm fires ${leadMinutes} min beforehand.`,
         scheduledLabel: formatTriggerDayAndTime(nextPre.alertDate, now),
         taskId: nextPre.task.id,
       });

@@ -4,6 +4,8 @@ export type SessionStatus =
   | 'paused'
   | 'checkpoint'
   | 'completed'
+  | 'skipped'
+  | 'missed'
   | 'cancelled';
 
 export interface FocusSession {

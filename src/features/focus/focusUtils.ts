@@ -1,11 +1,13 @@
 import type { SessionStatus } from '@/types/focus';
 
 export const ALLOWED_SESSION_TRANSITIONS: Record<SessionStatus, SessionStatus[]> = {
-  planned: ['active', 'cancelled'],
-  active: ['paused', 'checkpoint', 'completed', 'cancelled'],
-  paused: ['active', 'checkpoint', 'completed', 'cancelled'],
-  checkpoint: ['active', 'paused', 'completed', 'cancelled'],
+  planned: ['active', 'missed', 'cancelled'],
+  active: ['paused', 'checkpoint', 'completed', 'skipped', 'missed', 'cancelled'],
+  paused: ['active', 'checkpoint', 'completed', 'skipped', 'missed', 'cancelled'],
+  checkpoint: ['active', 'paused', 'completed', 'skipped', 'missed', 'cancelled'],
   completed: [],
+  skipped: [],
+  missed: [],
   cancelled: [],
 };
 
