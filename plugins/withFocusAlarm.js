@@ -646,6 +646,425 @@ class SwipeKillAlarmReceiver : BroadcastReceiver() {
 `;
 }
 
+function buildKotlinLiveCameraSource(packageName) {
+  return `package ${packageName}
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleOwner
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.facebook.react.uimanager.SimpleViewManager
+import com.facebook.react.uimanager.ThemedReactContext
+import com.facebook.react.uimanager.annotations.ReactProp
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabel
+import com.google.mlkit.vision.label.ImageLabeler
+import com.google.mlkit.vision.label.ImageLabeling
+import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import com.google.mlkit.vision.text.Text
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Native CameraX + Center-ROI Cropping + Parallel Offline Google ML Kit Image Labeling & OCR View.
+ * - Throttled ~400ms (~2.5 FPS) continuous hands-free analysis (zero shutter sound, zero saved files)
+ * - Strictly closes ImageProxy on every code path
+ * - Properly disposes ML Kit detectors & unbinds CameraX in dispose() so repeated scans never fail
+ */
+class FocusLiveCameraView(
+  private val reactContext: ThemedReactContext
+) : FrameLayout(reactContext) {
+
+  private val previewView: PreviewView = PreviewView(reactContext).apply {
+    layoutParams = LayoutParams(
+      ViewGroup.LayoutParams.MATCH_PARENT,
+      ViewGroup.LayoutParams.MATCH_PARENT
+    )
+    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+    scaleType = PreviewView.ScaleType.FILL_CENTER
+  }
+
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private var analysisExecutor: ExecutorService? = null
+  private var cameraProvider: ProcessCameraProvider? = null
+  private var imageLabeler: ImageLabeler? = null
+  private var textRecognizer: TextRecognizer? = null
+
+  private val isProcessing = AtomicBoolean(false)
+  @Volatile private var isDisposed = false
+  @Volatile private var isActive = true
+  @Volatile private var lensFacing: String = "back"
+  @Volatile private var targetItem: String = "book"
+  @Volatile private var lastAnalyzedAtMs: Long = 0L
+
+  private val measureAndLayoutRunnable = Runnable {
+    measure(
+      MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+      MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
+    )
+    layout(left, top, right, bottom)
+  }
+
+  init {
+    addView(previewView)
+  }
+
+  override fun requestLayout() {
+    super.requestLayout()
+    post(measureAndLayoutRunnable)
+  }
+
+  override fun onAttachedToWindow() {
+    super.onAttachedToWindow()
+    isDisposed = false
+    startCameraPipeline()
+  }
+
+  override fun onDetachedFromWindow() {
+    super.onDetachedFromWindow()
+    dispose()
+  }
+
+  fun setFacing(nextFacing: String?) {
+    val clean = if (nextFacing == "front") "front" else "back"
+    if (clean != lensFacing) {
+      lensFacing = clean
+      if (isAttachedToWindow && !isDisposed) {
+        bindCameraUseCases()
+      }
+    }
+  }
+
+  fun setActive(active: Boolean) {
+    isActive = active
+  }
+
+  fun setTargetItem(item: String?) {
+    val clean = item?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: "book"
+    targetItem = clean
+  }
+
+  private fun ensureDetectors() {
+    if (imageLabeler == null) {
+      val labelOpts = ImageLabelerOptions.Builder()
+        .setConfidenceThreshold(0.42f)
+        .build()
+      imageLabeler = ImageLabeling.getClient(labelOpts)
+    }
+    if (textRecognizer == null) {
+      textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+    if (analysisExecutor == null || analysisExecutor?.isShutdown == true) {
+      analysisExecutor = Executors.newSingleThreadExecutor()
+    }
+  }
+
+  private fun startCameraPipeline() {
+    val hasPerm = ContextCompat.checkSelfPermission(
+      reactContext,
+      Manifest.permission.CAMERA
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!hasPerm) {
+      emitStatus(false, "Camera permission is required for hands-free verification.")
+      return
+    }
+
+    ensureDetectors()
+    val providerFuture = ProcessCameraProvider.getInstance(reactContext)
+    providerFuture.addListener(
+      {
+        if (isDisposed || !isAttachedToWindow) return@addListener
+        try {
+          cameraProvider = providerFuture.get()
+          bindCameraUseCases()
+        } catch (e: Exception) {
+          Log.e("FocusLiveCameraView", "Failed to initialize CameraX: \${e.message}", e)
+          emitStatus(false, e.message ?: "Unable to initialize live camera.")
+        }
+      },
+      ContextCompat.getMainExecutor(reactContext)
+    )
+  }
+
+  private fun bindCameraUseCases() {
+    val provider = cameraProvider ?: return
+    val lifecycleOwner = reactContext.currentActivity as? LifecycleOwner ?: return
+    ensureDetectors()
+    val executor = analysisExecutor ?: return
+
+    try {
+      provider.unbindAll()
+
+      val preview = Preview.Builder().build().also {
+        it.surfaceProvider = previewView.surfaceProvider
+      }
+
+      val analysis = ImageAnalysis.Builder()
+        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+        .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+        .build()
+
+      analysis.setAnalyzer(executor) { imageProxy ->
+        analyzeFrameSafely(imageProxy)
+      }
+
+      val selector = if (lensFacing == "front") {
+        CameraSelector.DEFAULT_FRONT_CAMERA
+      } else {
+        CameraSelector.DEFAULT_BACK_CAMERA
+      }
+
+      provider.bindToLifecycle(lifecycleOwner, selector, preview, analysis)
+      post(measureAndLayoutRunnable)
+      emitStatus(true, null)
+    } catch (e: Exception) {
+      Log.e("FocusLiveCameraView", "CameraX bindToLifecycle failed: \${e.message}", e)
+      emitStatus(false, e.message ?: "Unable to start live camera stream.")
+    }
+  }
+
+  private fun analyzeFrameSafely(imageProxy: ImageProxy) {
+    val nowMs = SystemClock.elapsedRealtime()
+    if (
+      isDisposed ||
+      !isActive ||
+      nowMs - lastAnalyzedAtMs < 380L ||
+      !isProcessing.compareAndSet(false, true)
+    ) {
+      try {
+        imageProxy.close()
+      } catch (_: Exception) {
+      }
+      return
+    }
+
+    lastAnalyzedAtMs = nowMs
+    val currentTarget = targetItem
+    var roiBitmap: Bitmap? = null
+
+    try {
+      val labeler = imageLabeler
+      val ocr = textRecognizer
+      if (labeler == null || ocr == null || isDisposed) {
+        isProcessing.set(false)
+        imageProxy.close()
+        return
+      }
+
+      val rawBitmap = imageProxy.toBitmap()
+      val rotation = imageProxy.imageInfo.rotationDegrees
+      val uprightBitmap = if (rotation != 0) {
+        val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+        val rotated = Bitmap.createBitmap(
+          rawBitmap,
+          0,
+          0,
+          rawBitmap.width,
+          rawBitmap.height,
+          matrix,
+          true
+        )
+        if (rotated !== rawBitmap) rawBitmap.recycle()
+        rotated
+      } else {
+        rawBitmap
+      }
+
+      // Strictly crop to the center guide-box Region of Interest (68% width x 64% height)
+      // Excludes patterned bedsheets, clothes, and background fabrics outside the viewfinder box.
+      val cropW = (uprightBitmap.width * 0.68f).toInt().coerceAtLeast(64).coerceAtMost(uprightBitmap.width)
+      val cropH = (uprightBitmap.height * 0.64f).toInt().coerceAtLeast(64).coerceAtMost(uprightBitmap.height)
+      val cropLeft = ((uprightBitmap.width - cropW) / 2).coerceAtLeast(0)
+      val cropTop = ((uprightBitmap.height - cropH) / 2).coerceAtLeast(0)
+
+      val cropped = Bitmap.createBitmap(uprightBitmap, cropLeft, cropTop, cropW, cropH)
+      roiBitmap = cropped
+      if (cropped !== uprightBitmap) {
+        uprightBitmap.recycle()
+      }
+
+      val inputImage = InputImage.fromBitmap(cropped, 0)
+      val labelTask = labeler.process(inputImage)
+      val ocrTask = ocr.process(inputImage)
+
+      Tasks.whenAllComplete(labelTask, ocrTask).addOnCompleteListener {
+        try {
+          if (!isDisposed && isActive) {
+            val labelsList: List<ImageLabel> =
+              if (labelTask.isSuccessful) labelTask.result ?: emptyList() else emptyList()
+            val ocrResult: Text? = if (ocrTask.isSuccessful) ocrTask.result else null
+            val rawOcr = ocrResult?.text ?: ""
+            val normalizedOcr = rawOcr.replace(Regex("\\\\s+"), " ").trim()
+            val alphaNumCount = normalizedOcr.count { it.isLetterOrDigit() }
+            val wordCount = normalizedOcr
+              .split(" ")
+              .count { token -> token.count { it.isLetterOrDigit() } >= 2 }
+
+            emitFrameResult(
+              target = currentTarget,
+              labels = labelsList,
+              ocrText = normalizedOcr.take(120),
+              ocrWordCount = wordCount,
+              ocrCharCount = alphaNumCount
+            )
+          }
+        } catch (e: Exception) {
+          Log.w("FocusLiveCameraView", "Emit frame result skipped: \${e.message}")
+        } finally {
+          try {
+            if (!cropped.isRecycled) cropped.recycle()
+          } catch (_: Exception) {
+          }
+          isProcessing.set(false)
+          try {
+            imageProxy.close()
+          } catch (_: Exception) {
+          }
+        }
+      }
+    } catch (e: Exception) {
+      Log.w("FocusLiveCameraView", "Frame analysis error: \${e.message}")
+      try {
+        roiBitmap?.recycle()
+      } catch (_: Exception) {
+      }
+      isProcessing.set(false)
+      try {
+        imageProxy.close()
+      } catch (_: Exception) {
+      }
+    }
+  }
+
+  private fun emitFrameResult(
+    target: String,
+    labels: List<ImageLabel>,
+    ocrText: String,
+    ocrWordCount: Int,
+    ocrCharCount: Int
+  ) {
+    val payload = Arguments.createMap().apply {
+      putString("targetItem", target)
+      val arr = Arguments.createArray()
+      for (lbl in labels) {
+        val itemMap = Arguments.createMap()
+        itemMap.putString("text", lbl.text)
+        itemMap.putDouble("confidence", lbl.confidence.toDouble())
+        arr.pushMap(itemMap)
+      }
+      putArray("labels", arr)
+      putString("ocrText", ocrText)
+      putInt("ocrWordCount", ocrWordCount)
+      putInt("ocrCharCount", ocrCharCount)
+      putDouble("timestampMs", System.currentTimeMillis().toDouble())
+    }
+
+    mainHandler.post {
+      if (isDisposed) return@post
+      try {
+        reactContext
+          .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          .emit("FocusLiveVisionFrame", payload)
+      } catch (_: Exception) {
+      }
+    }
+  }
+
+  private fun emitStatus(ready: Boolean, error: String?) {
+    val payload = Arguments.createMap().apply {
+      putBoolean("ready", ready)
+      if (error != null) putString("error", error)
+    }
+    mainHandler.post {
+      if (isDisposed) return@post
+      try {
+        reactContext
+          .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          .emit("FocusLiveCameraStatus", payload)
+      } catch (_: Exception) {
+      }
+    }
+  }
+
+  fun dispose() {
+    if (isDisposed) return
+    isDisposed = true
+    isActive = false
+    mainHandler.removeCallbacksAndMessages(null)
+    try {
+      cameraProvider?.unbindAll()
+    } catch (_: Exception) {
+    }
+    cameraProvider = null
+    try {
+      imageLabeler?.close()
+    } catch (_: Exception) {
+    }
+    imageLabeler = null
+    try {
+      textRecognizer?.close()
+    } catch (_: Exception) {
+    }
+    textRecognizer = null
+    try {
+      analysisExecutor?.shutdownNow()
+    } catch (_: Exception) {
+    }
+    analysisExecutor = null
+    isProcessing.set(false)
+  }
+}
+
+class FocusLiveCameraViewManager : SimpleViewManager<FocusLiveCameraView>() {
+  override fun getName(): String = "FocusLiveCameraView"
+
+  override fun createViewInstance(reactContext: ThemedReactContext): FocusLiveCameraView =
+    FocusLiveCameraView(reactContext)
+
+  @ReactProp(name = "facing")
+  fun setFacing(view: FocusLiveCameraView, facing: String?) {
+    view.setFacing(facing)
+  }
+
+  @ReactProp(name = "active", defaultBoolean = true)
+  fun setActive(view: FocusLiveCameraView, active: Boolean) {
+    view.setActive(active)
+  }
+
+  @ReactProp(name = "targetItem")
+  fun setTargetItem(view: FocusLiveCameraView, targetItem: String?) {
+    view.setTargetItem(targetItem)
+  }
+
+  override fun onDropViewInstance(view: FocusLiveCameraView) {
+    super.onDropViewInstance(view)
+    view.dispose()
+  }
+}
+`;
+}
+
 function buildKotlinNativeModulesSource(packageName) {
   return `package ${packageName}
 
@@ -1081,7 +1500,7 @@ class FocusOverlayPermissionPackage : ReactPackage {
     )
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
-    emptyList()
+    listOf(FocusLiveCameraViewManager())
 }
 `;
 }
@@ -1113,10 +1532,28 @@ module.exports = function withFocusAlarm(config) {
       offset: 1,
       newSrc: [
         '    implementation("com.google.mlkit:image-labeling:17.0.9")',
+        '    implementation("com.google.mlkit:text-recognition:16.0.1")',
+        '    implementation("androidx.camera:camera-core:1.6.0")',
+        '    implementation("androidx.camera:camera-camera2:1.6.0")',
+        '    implementation("androidx.camera:camera-lifecycle:1.6.0")',
+        '    implementation("androidx.camera:camera-view:1.6.0")',
       ].join('\n'),
     });
 
-    modConfig.modResults.contents = withDeps.contents;
+    const withGuavaFix = mergeContents({
+      src: withDeps.contents,
+      tag: 'procrastistop-camerax-listenablefuture',
+      comment: '//',
+      anchor: /dependencies\s*\{/,
+      offset: 0,
+      newSrc: [
+        'configurations.configureEach {',
+        '    resolutionStrategy.force("com.google.guava:listenablefuture:1.0")',
+        '}',
+      ].join('\n'),
+    });
+
+    modConfig.modResults.contents = withGuavaFix.contents;
     return modConfig;
   });
 
@@ -1303,6 +1740,12 @@ module.exports = function withFocusAlarm(config) {
       fs.writeFileSync(
         path.join(packagePath, 'SwipeKillAlarmReceiver.kt'),
         buildKotlinSwipeKillReceiverSource(packageName, scheme),
+        'utf8',
+      );
+
+      fs.writeFileSync(
+        path.join(packagePath, 'FocusLiveCameraView.kt'),
+        buildKotlinLiveCameraSource(packageName),
         'utf8',
       );
 

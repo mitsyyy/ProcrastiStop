@@ -9,14 +9,17 @@ import { Card } from '@/components/ui/Card';
 import { Divider } from '@/components/ui/Divider';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { ScreenBackground } from '@/components/ui/ScreenBackground';
+import { SelectField } from '@/components/ui/SelectField';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { FOCUS_DURATION_PRESETS } from '@/constants/categories';
 import { Layout, Radii, Spacing, Typography } from '@/constants/theme';
+import { CHECKPOINT_ITEM_OPTIONS } from '@/features/checkpoints/checkpointAnalyzer';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useBlockerStore } from '@/store/blockerStore';
 import { useFocusStore } from '@/store/focusStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTaskStore } from '@/store/taskStore';
+import type { CheckpointTargetItem } from '@/types/task';
 import { formatDeadlineLabel } from '@/utils/date';
 import { validateFocusDuration } from '@/utils/validation';
 
@@ -36,7 +39,10 @@ export default function FocusSetupScreen() {
   const startSession = useFocusStore((s) => s.startSession);
 
   const openTasks = useMemo(
-    () => tasks.filter((t) => t.status !== 'completed' && t.status !== 'cancelled'),
+    () =>
+      tasks.filter(
+        (t) => t.status !== 'completed' && t.status !== 'cancelled' && t.status !== 'missed',
+      ),
     [tasks],
   );
 
@@ -53,6 +59,10 @@ export default function FocusSetupScreen() {
   const [customError, setCustomError] = useState<string | undefined>(undefined);
 
   const [checkpointEnabled, setCheckpointEnabled] = useState(preferences.checkpointEnabled);
+  const [requiredItem, setRequiredItem] = useState<CheckpointTargetItem>(() => {
+    const initial = tasks.find((t) => t.id === (initialTaskId ?? openTasks[0]?.id));
+    return initial?.requiredCheckpointItem ?? 'book';
+  });
   const [reminderEnabled, setReminderEnabled] = useState(preferences.notificationsEnabled);
   const [starting, setStarting] = useState(false);
 
@@ -80,11 +90,26 @@ export default function FocusSetupScreen() {
         checkpointEnabled,
         notificationsEnabled: reminderEnabled,
       });
+
+      if (checkpointEnabled) {
+        // Open AI Camera Checkpoint Gate FIRST — countdown starts only after ML Kit verifies the item
+        router.replace({
+          pathname: '/focus/checkpoint',
+          params: {
+            mode: 'gate',
+            duration: String(durationMinutes),
+            item: requiredItem,
+            ...(selectedTask ? { taskId: selectedTask.id } : {}),
+          },
+        });
+        return;
+      }
+
       await startSession({
         taskId: selectedTask?.id ?? null,
         taskTitleSnapshot: selectedTask?.title ?? 'Open deep work session',
         plannedDurationMinutes: durationMinutes,
-        checkpointEnabled,
+        checkpointEnabled: false,
       });
       router.replace('/focus/active');
     } finally {
@@ -284,14 +309,28 @@ export default function FocusSetupScreen() {
                 </View>
                 <View style={styles.toggleCopy}>
                   <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
-                    Visual checkpoints
+                    AI Camera Checkpoint Gate
                   </Text>
                   <Text style={[Typography.small, { color: palette.textMuted }]}>
-                    Optional desk check for broad work items (photos never saved)
+                    Verify your required desk item via offline Google ML Kit before starting
                   </Text>
                 </View>
                 <ToggleSwitch value={checkpointEnabled} onValueChange={setCheckpointEnabled} />
               </View>
+
+              {checkpointEnabled ? (
+                <SelectField
+                  label="Required item to scan before session"
+                  value={requiredItem}
+                  options={CHECKPOINT_ITEM_OPTIONS.map((opt) => ({
+                    label: opt.label,
+                    value: opt.key,
+                    subtitle: opt.promptHint,
+                  }))}
+                  onChange={setRequiredItem}
+                  icon="camera"
+                />
+              ) : null}
 
               <Divider />
 
@@ -390,6 +429,9 @@ export default function FocusSetupScreen() {
                     key={t.id}
                     onPress={() => {
                       setSelectedTaskId(t.id);
+                      if (t.requiredCheckpointItem) {
+                        setRequiredItem(t.requiredCheckpointItem);
+                      }
                       setTaskModalOpen(false);
                     }}
                     style={[
