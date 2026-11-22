@@ -14,7 +14,7 @@ export function getTaskDeadlineState(task: Task, nowMs = Date.now()): TaskDeadli
   if (Number.isNaN(deadlineMs)) {
     return 'none';
   }
-  if (deadlineMs < nowMs) {
+  if (deadlineMs <= nowMs) {
     return 'overdue';
   }
   if (deadlineMs - nowMs <= TWENTY_FOUR_HOURS_MS) {

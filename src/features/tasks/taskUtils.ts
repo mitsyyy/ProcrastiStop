@@ -23,6 +23,8 @@ export function filterTasks(
 
     if (statusFilter === 'pending' && task.status !== 'pending') return false;
     if (statusFilter === 'in_progress' && task.status !== 'in_progress') return false;
+    if (statusFilter === 'skipped' && task.status !== 'skipped') return false;
+    if (statusFilter === 'missed' && task.status !== 'missed') return false;
     if (statusFilter === 'completed' && task.status !== 'completed') return false;
     if (statusFilter === 'overdue' && getTaskDeadlineState(task, nowMs) !== 'overdue') {
       return false;
@@ -43,9 +45,11 @@ export function filterTasks(
 
 export function sortTasks(tasks: Task[], sortBy: TaskSortBy, nowMs = Date.now()): Task[] {
   return [...tasks].sort((a, b) => {
-    // Keep active tasks before completed/cancelled tasks when sorting by deadline/priority
-    const aDone = a.status === 'completed' || a.status === 'cancelled';
-    const bDone = b.status === 'completed' || b.status === 'cancelled';
+    // Keep active tasks before completed/cancelled/missed tasks when sorting by deadline/priority
+    const aDone =
+      a.status === 'completed' || a.status === 'cancelled' || a.status === 'missed';
+    const bDone =
+      b.status === 'completed' || b.status === 'cancelled' || b.status === 'missed';
     if (aDone !== bDone && sortBy !== 'recent') {
       return aDone ? 1 : -1;
     }

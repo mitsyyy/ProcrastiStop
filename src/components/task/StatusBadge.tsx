@@ -11,6 +11,8 @@ interface StatusBadgeProps {
 const STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'Pending',
   in_progress: 'In progress',
+  skipped: 'Skipped',
+  missed: 'Missed',
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
@@ -21,18 +23,18 @@ export function StatusBadge({ status }: StatusBadgeProps) {
   const bg =
     status === 'completed'
       ? palette.successSoft
-      : status === 'in_progress'
+      : status === 'in_progress' || status === 'skipped'
         ? palette.warningSoft
-        : status === 'cancelled'
+        : status === 'cancelled' || status === 'missed'
           ? palette.dangerSoft
           : palette.surfaceMuted;
 
   const textColor =
     status === 'completed'
       ? palette.successText
-      : status === 'in_progress'
+      : status === 'in_progress' || status === 'skipped'
         ? palette.warningText
-        : status === 'cancelled'
+        : status === 'cancelled' || status === 'missed'
           ? palette.dangerText
           : palette.textSecondary;
 
