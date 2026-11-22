@@ -16,6 +16,7 @@ interface SettingsState {
   preferences: UserPreferences;
   user: MockUser | null;
   onboardingCompleted: boolean;
+  permissionOnboardingCompleted: boolean;
   hydrated: boolean;
   loading: boolean;
   toast: ToastNotice | null;
@@ -27,6 +28,7 @@ interface SettingsState {
   registerAccount: (fullName: string, email: string) => Promise<MockUser>;
   signOut: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
+  completePermissionOnboarding: () => Promise<void>;
   showToast: (message: string, tone?: ToastTone) => void;
   hideToast: () => void;
 }
@@ -47,6 +49,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   preferences: DEFAULT_PREFERENCES,
   user: null,
   onboardingCompleted: false,
+  permissionOnboardingCompleted: false,
   hydrated: false,
   loading: false,
   toast: null,
@@ -54,15 +57,20 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   hydrateSettings: async () => {
     set({ loading: true });
     try {
-      const [preferences, user, onboardingCompleted] = await Promise.all([
+      const [preferences, user, onboardingCompleted, storedPermOnboarding] = await Promise.all([
         settingsRepository.getPreferences(),
         settingsRepository.getAuthUser(),
         settingsRepository.getOnboardingCompleted(),
+        settingsRepository.getPermissionOnboardingCompleted(),
       ]);
+      // Existing signed-in sessions created before V7 default to true; fresh sign-ins start false
+      const permissionOnboardingCompleted =
+        storedPermOnboarding !== null ? storedPermOnboarding : Boolean(user && onboardingCompleted);
       set({
         preferences,
         user,
         onboardingCompleted,
+        permissionOnboardingCompleted,
         hydrated: true,
         loading: false,
       });
@@ -88,7 +96,12 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     };
     await settingsRepository.saveAuthUser(demoUser);
     await settingsRepository.setOnboardingCompleted(true);
-    set({ user: demoUser, onboardingCompleted: true });
+    await settingsRepository.setPermissionOnboardingCompleted(false);
+    set({
+      user: demoUser,
+      onboardingCompleted: true,
+      permissionOnboardingCompleted: false,
+    });
     return demoUser;
   },
 
@@ -106,7 +119,12 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     };
     await settingsRepository.saveAuthUser(signedInUser);
     await settingsRepository.setOnboardingCompleted(true);
-    set({ user: signedInUser, onboardingCompleted: true });
+    await settingsRepository.setPermissionOnboardingCompleted(false);
+    set({
+      user: signedInUser,
+      onboardingCompleted: true,
+      permissionOnboardingCompleted: false,
+    });
     return signedInUser;
   },
 
@@ -122,18 +140,29 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     };
     await settingsRepository.saveAuthUser(created);
     await settingsRepository.setOnboardingCompleted(true);
-    set({ user: created, onboardingCompleted: true });
+    await settingsRepository.setPermissionOnboardingCompleted(false);
+    set({
+      user: created,
+      onboardingCompleted: true,
+      permissionOnboardingCompleted: false,
+    });
     return created;
   },
 
   signOut: async () => {
     await settingsRepository.saveAuthUser(null);
-    set({ user: null });
+    await settingsRepository.setPermissionOnboardingCompleted(false);
+    set({ user: null, permissionOnboardingCompleted: false });
   },
 
   completeOnboarding: async () => {
     await settingsRepository.setOnboardingCompleted(true);
     set({ onboardingCompleted: true });
+  },
+
+  completePermissionOnboarding: async () => {
+    await settingsRepository.setPermissionOnboardingCompleted(true);
+    set({ permissionOnboardingCompleted: true });
   },
 
   showToast: (message, tone = 'info') => {

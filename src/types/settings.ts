@@ -40,4 +40,6 @@ export interface SettingsRepository {
   saveAuthUser(user: MockUser | null): Promise<void>;
   getOnboardingCompleted(): Promise<boolean>;
   setOnboardingCompleted(completed: boolean): Promise<void>;
+  getPermissionOnboardingCompleted(): Promise<boolean | null>;
+  setPermissionOnboardingCompleted(completed: boolean): Promise<void>;
 }

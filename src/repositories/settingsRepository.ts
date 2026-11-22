@@ -79,6 +79,15 @@ class MockSettingsRepository implements SettingsRepository {
   async setOnboardingCompleted(completed: boolean): Promise<void> {
     await writeJsonItem(STORAGE_KEYS.ONBOARDING_COMPLETED, completed);
   }
+
+  async getPermissionOnboardingCompleted(): Promise<boolean | null> {
+    const val = await readJsonItem<boolean>(STORAGE_KEYS.PERMISSION_ONBOARDING_COMPLETED);
+    return typeof val === 'boolean' ? val : null;
+  }
+
+  async setPermissionOnboardingCompleted(completed: boolean): Promise<void> {
+    await writeJsonItem(STORAGE_KEYS.PERMISSION_ONBOARDING_COMPLETED, completed);
+  }
 }
 
 export const settingsRepository: SettingsRepository = new MockSettingsRepository();

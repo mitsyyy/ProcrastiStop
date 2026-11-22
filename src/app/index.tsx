@@ -1,6 +1,6 @@
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
@@ -8,6 +8,7 @@ import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { ScreenBackground } from '@/components/ui/ScreenBackground';
 import { Layout, Radii, Shadows, Spacing, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { getCriticalPermissionsSnapshot } from '@/services/native/focusOverlayPermissions';
 import { useSettingsStore } from '@/store/settingsStore';
 
 interface OnboardingSlide {
@@ -52,6 +53,7 @@ export default function IndexGateScreen() {
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
   const user = useSettingsStore((s) => s.user);
   const completeOnboarding = useSettingsStore((s) => s.completeOnboarding);
+  const completePermissionOnboarding = useSettingsStore((s) => s.completePermissionOnboarding);
   const signInDemo = useSettingsStore((s) => s.signInDemo);
 
   const [page, setPage] = useState(0);
@@ -102,6 +104,16 @@ export default function IndexGateScreen() {
 
   const handleDemoQuickStart = async () => {
     await signInDemo();
+    if (Platform.OS !== 'web') {
+      const snap = await getCriticalPermissionsSnapshot();
+      const needsNotifications = snap.notifications.status !== 'granted';
+      const needsOverlay = Platform.OS === 'android' && snap.overlay !== 'granted';
+      if (needsNotifications || needsOverlay) {
+        router.replace('/(auth)/permissions');
+        return;
+      }
+    }
+    await completePermissionOnboarding();
     router.replace('/(tabs)/home');
   };
 
