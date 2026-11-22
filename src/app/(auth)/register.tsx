@@ -19,6 +19,7 @@ import { SecondaryButton } from '@/components/ui/SecondaryButton';
 import { TextField } from '@/components/ui/TextField';
 import { Layout, Spacing, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/hooks/useAppTheme';
+import { getCriticalPermissionsSnapshot } from '@/services/native/focusOverlayPermissions';
 import { useSettingsStore } from '@/store/settingsStore';
 import { validateEmail, validatePassword } from '@/utils/validation';
 
@@ -28,6 +29,7 @@ export default function RegisterScreen() {
 
   const registerAccount = useSettingsStore((s) => s.registerAccount);
   const signInDemo = useSettingsStore((s) => s.signInDemo);
+  const completePermissionOnboarding = useSettingsStore((s) => s.completePermissionOnboarding);
   const showToast = useSettingsStore((s) => s.showToast);
 
   const [fullName, setFullName] = useState('');
@@ -43,6 +45,23 @@ export default function RegisterScreen() {
   const confirmError =
     submitted && password !== confirmPassword ? 'Passwords do not match.' : undefined;
 
+  const routeAfterAuth = async () => {
+    if (Platform.OS === 'web') {
+      await completePermissionOnboarding();
+      router.replace('/(tabs)/home');
+      return;
+    }
+    const snap = await getCriticalPermissionsSnapshot();
+    const needsNotifications = snap.notifications.status !== 'granted';
+    const needsOverlay = Platform.OS === 'android' && snap.overlay !== 'granted';
+    if (needsNotifications || needsOverlay) {
+      router.replace('/(auth)/permissions');
+      return;
+    }
+    await completePermissionOnboarding();
+    router.replace('/(tabs)/home');
+  };
+
   const handleRegister = async () => {
     setSubmitted(true);
     if (nameError || !emailCheck.valid || !passwordCheck.valid || password !== confirmPassword) {
@@ -53,7 +72,7 @@ export default function RegisterScreen() {
     try {
       await registerAccount(fullName, email);
       showToast('Local profile created for Stage 1 demo.', 'success');
-      router.replace('/(tabs)/home');
+      await routeAfterAuth();
     } finally {
       setSubmitting(false);
     }
@@ -64,7 +83,7 @@ export default function RegisterScreen() {
     try {
       await signInDemo();
       showToast('Signed in with Demo Account (Alex Morgan).', 'success');
-      router.replace('/(tabs)/home');
+      await routeAfterAuth();
     } finally {
       setSubmitting(false);
     }

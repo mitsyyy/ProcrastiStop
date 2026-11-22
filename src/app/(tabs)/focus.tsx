@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppSelectionItem } from '@/components/blocker/AppSelectionItem';
@@ -22,6 +22,11 @@ import { useReminders } from '@/features/notifications/useReminders';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useFocusTicker } from '@/hooks/useFocusTicker';
 import {
+  checkOverlayPermissionStatus,
+  openDisplayOverAppsSettings,
+  type SystemPermissionStatus,
+} from '@/services/native/focusOverlayPermissions';
+import {
   getNotificationPermissionState,
   getScheduledNotificationsCount,
   type NotificationPermissionState,
@@ -29,6 +34,7 @@ import {
   openAppSystemSettings,
   requestNotificationPermission,
   scheduleReminderNotification,
+  sendTestFullScreenFocusAlarm,
   sendTestLocalNotification,
   sendTestPreSessionWarning,
   syncScheduledPreSessionAndNudgeNotifications,
@@ -46,6 +52,9 @@ export default function FocusHubScreen() {
     status: 'undetermined',
     canAskAgain: true,
   });
+  const [overlayPerm, setOverlayPerm] = useState<SystemPermissionStatus>(
+    Platform.OS === 'android' ? 'undetermined' : 'unavailable',
+  );
   const [scheduledCount, setScheduledCount] = useState(0);
   const [syncSummary, setSyncSummary] = useState<NotificationSyncSummary | null>(null);
 
@@ -58,13 +67,15 @@ export default function FocusHubScreen() {
   useEffect(() => {
     let active = true;
     const refreshNotificationState = async () => {
-      const [perm, summary] = await Promise.all([
+      const [perm, overlayStatus, summary] = await Promise.all([
         getNotificationPermissionState(),
+        checkOverlayPermissionStatus(),
         syncScheduledPreSessionAndNudgeNotifications(tasks, preferences, activeSession),
       ]);
       const count = await getScheduledNotificationsCount();
       if (active) {
         setNotifPerm(perm);
+        setOverlayPerm(overlayStatus);
         setSyncSummary(summary);
         setScheduledCount(count);
       }
@@ -339,10 +350,10 @@ export default function FocusHubScreen() {
                   </Text>
                   <Text style={[Typography.small, { color: palette.textMuted }]}>
                     {notifPerm.status === 'granted'
-                      ? `${scheduledCount} OS alert${scheduledCount === 1 ? '' : 's'} queued (high-priority channel active).`
+                      ? `${scheduledCount} OS alarm${scheduledCount === 1 ? '' : 's'} queued (exact background & lock-screen delivery).`
                       : notifPerm.status === 'denied' && !notifPerm.canAskAgain
                         ? 'Disabled in Android Settings. Open Settings to re-enable.'
-                        : 'Allow local notifications to receive 5-min warnings and daily nudges.'}
+                        : 'Allow local notifications to receive 5-min warnings and auto-start alarms.'}
                   </Text>
                 </View>
                 <View
@@ -444,16 +455,17 @@ export default function FocusHubScreen() {
                   />
                 ) : (
                   <PrimaryButton
-                    title={`Test ${preferences.remindBeforeSessionMinutes}m Warning (3s)`}
+                    title={`Test ${preferences.remindBeforeSessionMinutes}m Warning (5s)`}
                     icon="bell"
                     tone="emerald"
                     fullWidth={false}
+                    compact
                     style={styles.flexOne}
                     onPress={() => {
                       void sendTestPreSessionWarning(
                         nextTaskTitle,
                         preferences.remindBeforeSessionMinutes,
-                        3,
+                        5,
                       ).then((res) => {
                         setNotifPerm({
                           status: res.permissionStatus,
@@ -461,7 +473,7 @@ export default function FocusHubScreen() {
                         });
                         showToast(
                           res.scheduled
-                            ? `${preferences.remindBeforeSessionMinutes}-min warning preview arriving in 3 seconds.`
+                            ? `Background ${preferences.remindBeforeSessionMinutes}-min warning firing in 5s (try minimizing or locking phone).`
                             : res.reason ?? 'Unable to schedule notification.',
                           res.scheduled ? 'success' : 'warning',
                         );
@@ -473,6 +485,7 @@ export default function FocusHubScreen() {
                 <SecondaryButton
                   title="Send Test Alert (3s)"
                   icon="bell"
+                  compact
                   style={styles.flexOne}
                   onPress={() => {
                     void sendTestLocalNotification(3).then((res) => {
@@ -492,6 +505,76 @@ export default function FocusHubScreen() {
                   }}
                 />
               </View>
+
+              {Platform.OS === 'android' ? (
+                <View style={styles.overlayRow}>
+                  <View style={styles.switchCopy}>
+                    <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
+                      Display over other apps (Auto-launch)
+                    </Text>
+                    <Text style={[Typography.small, { color: palette.textMuted }]}>
+                      {overlayPerm === 'granted'
+                        ? 'Granted — focus alarms pop directly over active apps & lock screen.'
+                        : 'Required so focus sessions auto-open over other apps when due.'}
+                    </Text>
+                  </View>
+                  {overlayPerm === 'granted' ? (
+                    <View style={[styles.permPill, { backgroundColor: palette.successSoft }]}>
+                      <Text
+                        style={[
+                          Typography.small,
+                          { color: palette.successText, fontWeight: '700' },
+                        ]}
+                      >
+                        Active
+                      </Text>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => void openDisplayOverAppsSettings()}
+                      style={[
+                        styles.permPill,
+                        { backgroundColor: palette.warningSoft, borderWidth: 1, borderColor: palette.warning },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          Typography.small,
+                          { color: palette.warningText, fontWeight: '700' },
+                        ]}
+                      >
+                        Enable
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              ) : null}
+
+              {notifPerm.status === 'granted' ? (
+                <SecondaryButton
+                  title="Test Full-Screen Focus Alarm (5s)"
+                  icon="clock"
+                  fullWidth
+                  compact
+                  onPress={() => {
+                    const targetTask = tasks.find(
+                      (t) => t.status !== 'completed' && t.status !== 'cancelled',
+                    );
+                    void sendTestFullScreenFocusAlarm(
+                      targetTask?.id ?? null,
+                      targetTask?.title ?? nextTaskTitle,
+                      5,
+                    ).then((res) => {
+                      showToast(
+                        res.scheduled
+                          ? 'Full-screen alarm armed for 5s — lock screen or minimize app to test wake-up!'
+                          : res.reason ?? 'Unable to schedule focus alarm.',
+                        res.scheduled ? 'success' : 'warning',
+                      );
+                    });
+                  }}
+                />
+              ) : null}
             </Card>
 
             <Card style={styles.reminderCard}>
@@ -719,6 +802,13 @@ const styles = StyleSheet.create({
   notifActionsRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
+  },
+  overlayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    paddingTop: Spacing.xs,
   },
   preSessionBox: {
     flexDirection: 'row',
