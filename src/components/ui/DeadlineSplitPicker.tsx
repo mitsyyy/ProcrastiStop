@@ -400,7 +400,63 @@ export function DeadlineSplitPicker({
         </Pressable>
       </Modal>
 
-      {/* Time wheel modal pending next step */}
+      {/* Modal 2: Borderless Infinite-Loop Time Wheel (Single Clean Cancel / Confirm Pair) */}
+      <Modal
+        visible={timeModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTimeModalOpen(false)}
+      >
+        <Pressable
+          style={[styles.backdrop, { backgroundColor: palette.overlayBackdrop }]}
+          onPress={() => setTimeModalOpen(false)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={[
+              styles.sheet,
+              { backgroundColor: palette.surfaceElevated, borderColor: palette.border },
+            ]}
+          >
+            <View style={styles.sheetHeader}>
+              <Text style={[Typography.h3, { color: palette.text }]}>Deadline Time</Text>
+              <Pressable onPress={() => setTimeModalOpen(false)} hitSlop={8}>
+                <AppIcon name="close" size={20} color={palette.textMuted} />
+              </Pressable>
+            </View>
+
+            {timeModalWarn ? (
+              <Text style={[Typography.small, { color: palette.dangerText }]}>{timeModalWarn}</Text>
+            ) : null}
+
+            <ExactTimeSelector
+              hour24={draftHour24}
+              minute={draftMinute}
+              onChangeTime={(h, m) => {
+                setTimeModalWarn(null);
+                setDraftHour24(h);
+                setDraftMinute(m);
+              }}
+            />
+
+            <View style={styles.modalActions}>
+              <SecondaryButton
+                title="Cancel"
+                compact
+                onPress={() => setTimeModalOpen(false)}
+                style={styles.flexOne}
+              />
+              <PrimaryButton
+                title="Confirm"
+                compact
+                fullWidth={false}
+                onPress={handleConfirmTime}
+                style={styles.flexOne}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
