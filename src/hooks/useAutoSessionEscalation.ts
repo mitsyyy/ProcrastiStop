@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 
@@ -13,14 +13,20 @@ import { useTaskStore } from '@/store/taskStore';
 const CHECK_INTERVAL_MS = 15_000;
 
 /**
- * Monitors open tasks whose free-will nudge window has elapsed and whose daily focus
- * session start time has arrived. When due, automatically launches the focus session
- * so the user cannot keep deferring the task.
+ * Monitors open tasks whose scheduled focus session window is currently active.
+ * Strictly enforces:
+ * 1) Past-due & unstarted passed-window tasks are marked "Missed" (never auto-started, never +1h)
+ * 2) Automatic session launches are deferred until `permissionOnboardingCompleted && isOnHomeScreen`
+ *    so fresh installs / login permission prompts are never interrupted.
  */
 export function useAutoSessionEscalation(ready: boolean): void {
+  const pathname = usePathname();
   const user = useSettingsStore((s) => s.user);
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
+  const permissionOnboardingCompleted = useSettingsStore((s) => s.permissionOnboardingCompleted);
   const runningRef = useRef(false);
+
+  const isOnHomeScreen = pathname === '/home' || pathname === '/(tabs)/home';
 
   useEffect(() => {
     if (!ready || !user || !onboardingCompleted) return;
@@ -29,41 +35,49 @@ export function useAutoSessionEscalation(ready: boolean): void {
       if (runningRef.current) return;
       runningRef.current = true;
       try {
+        // Step 1: Silently reconcile past-due & unstarted passed-window tasks to "Missed"
+        const activeSession = useFocusStore.getState().activeSession;
+        await useTaskStore.getState().reconcileMissedTasks(activeSession);
+
+        // Step 2: Gate automatic session launches behind permissionOnboardingCompleted && isOnHomeScreen
+        if (!permissionOnboardingCompleted || !isOnHomeScreen) {
+          return;
+        }
+
         const { tasks } = useTaskStore.getState();
-        const { activeSession } = useFocusStore.getState();
+        const latestSession = useFocusStore.getState().activeSession;
         const { preferences, showToast } = useSettingsStore.getState();
 
         const dueTask = findTaskDueForAutoStart(
           tasks,
-          activeSession,
+          latestSession,
           preferences.defaultDailySessionStartTime,
           new Date(),
+          preferences.focusDefaultMinutes,
         );
         if (!dueTask) return;
 
         const todayKey = getLocalDateKey(new Date());
         await useTaskStore.getState().updateTask(dueTask.id, {
           lastAutoStartedDate: todayKey,
-          status: 'in_progress',
-        });
-
-        const plannedDurationMinutes =
-          dueTask.estimatedMinutes && dueTask.estimatedMinutes >= 10
-            ? Math.min(dueTask.estimatedMinutes, 90)
-            : preferences.focusDefaultMinutes;
-
-        await useFocusStore.getState().startSession({
-          taskId: dueTask.id,
-          taskTitleSnapshot: dueTask.title,
-          plannedDurationMinutes,
-          checkpointEnabled: preferences.checkpointEnabled,
+          rescheduledStartAt: null,
         });
 
         showToast(
-          `Scheduled time reached — auto-started focus for "${dueTask.title}".`,
+          `Scheduled time reached — hover over your workspace item to start "${dueTask.title}".`,
           'info',
         );
-        router.push('/focus/active');
+
+        // Open Hands-Free AI Camera Gate FIRST with alarm active (countdown starts after verification)
+        router.push({
+          pathname: '/focus/checkpoint',
+          params: {
+            mode: 'gate',
+            alarm: '1',
+            taskId: dueTask.id,
+            item: dueTask.requiredCheckpointItem ?? 'book',
+          },
+        });
       } finally {
         runningRef.current = false;
       }
@@ -71,7 +85,7 @@ export function useAutoSessionEscalation(ready: boolean): void {
 
     const initialTimer = setTimeout(() => {
       void evaluate();
-    }, 900);
+    }, 650);
 
     const interval = setInterval(() => {
       void evaluate();
@@ -88,5 +102,5 @@ export function useAutoSessionEscalation(ready: boolean): void {
       clearInterval(interval);
       appStateSub.remove();
     };
-  }, [ready, user, onboardingCompleted]);
+  }, [ready, user, onboardingCompleted, permissionOnboardingCompleted, isOnHomeScreen]);
 }
