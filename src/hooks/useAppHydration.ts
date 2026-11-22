@@ -26,6 +26,8 @@ export function useAppHydration() {
       await Promise.all([loadTasks(), hydrateBlocker()]);
       if (!active) return;
       await hydrateFocus();
+      if (!active) return;
+      await useTaskStore.getState().reconcileMissedTasks(useFocusStore.getState().activeSession);
     }
     void boot();
     return () => {
