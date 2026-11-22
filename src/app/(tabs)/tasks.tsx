@@ -223,7 +223,11 @@ export default function TasksScreen() {
                     style={({ pressed }) => [
                       styles.sortChip,
                       {
-                        backgroundColor: 'transparent',
+                        backgroundColor: active
+                          ? palette.mode === 'dark'
+                            ? '#3ecf89'
+                            : palette.primary
+                          : palette.surfaceGlass,
                         borderColor: active
                           ? palette.mode === 'dark'
                             ? '#3ecf89'
@@ -504,8 +508,8 @@ const styles = StyleSheet.create({
   sortChip: {
     paddingHorizontal: Spacing.md,
     paddingVertical: 7,
-    borderRadius: Radii.xs,
-    borderWidth: 0,
+    borderRadius: Radii.full,
+    borderWidth: 1,
   },
   sortChipPressed: {
     opacity: 0.8,
