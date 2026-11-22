@@ -13,6 +13,7 @@ interface PrimaryButtonProps {
   disabled?: boolean;
   loading?: boolean;
   fullWidth?: boolean;
+  compact?: boolean;
   style?: ViewStyle;
 }
 
@@ -24,6 +25,7 @@ export function PrimaryButton({
   disabled = false,
   loading = false,
   fullWidth = true,
+  compact = false,
   style,
 }: PrimaryButtonProps) {
   const palette = useAppTheme();
@@ -61,7 +63,7 @@ export function PrimaryButton({
         }
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.gradient}
+        style={[styles.gradient, compact && styles.compactGradient]}
       >
         {loading ? (
           <ActivityIndicator size="small" color="#ffffff" />
@@ -75,9 +77,13 @@ export function PrimaryButton({
               />
             )}
             <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
               style={[
                 Typography.label,
                 styles.label,
+                compact && styles.compactLabel,
                 { color: isDisabled ? palette.textMuted : '#ffffff' },
               ]}
             >
@@ -114,7 +120,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.sm,
   },
+  compactGradient: {
+    minHeight: 46,
+    paddingHorizontal: Spacing.md,
+  },
   label: {
     fontSize: 14,
+    textAlign: 'center',
+  },
+  compactLabel: {
+    fontSize: 13,
   },
 });

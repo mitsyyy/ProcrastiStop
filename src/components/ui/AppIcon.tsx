@@ -20,6 +20,7 @@ export type AppIconName =
   | 'shield'
   | 'camera'
   | 'chevron'
+  | 'chevronDown'
   | 'edit'
   | 'sun'
   | 'lock'
@@ -33,7 +34,8 @@ export type AppIconName =
   | 'spark'
   | 'close'
   | 'refresh'
-  | 'alert';
+  | 'alert'
+  | 'trash';
 
 interface AppIconProps {
   name: AppIconName;
@@ -106,7 +108,7 @@ function renderPaths(name: AppIconName, color: string, strokeWidth: number): Rea
     case 'pause':
       return <Path d="M9 7v10M15 7v10" {...common} />;
     case 'square':
-      return <Rect x="7" y="7" width="10" height="10" rx="1.5" {...common} />;
+      return <Rect x="6.5" y="6.5" width="11" height="11" rx="2.5" {...common} fill={color} />;
     case 'search':
       return (
         <>
@@ -136,6 +138,8 @@ function renderPaths(name: AppIconName, color: string, strokeWidth: number): Rea
       );
     case 'chevron':
       return <Path d="m9 6 6 6-6 6" {...common} />;
+    case 'chevronDown':
+      return <Path d="m6 9 6 6 6-6" {...common} />;
     case 'edit':
       return (
         <>
@@ -220,6 +224,15 @@ function renderPaths(name: AppIconName, color: string, strokeWidth: number): Rea
         <>
           <Path d="M12 3 2.5 19.5h19L12 3Z" {...common} />
           <Path d="M12 9.5v4.5M12 17h.01" {...common} />
+        </>
+      );
+    case 'trash':
+      return (
+        <>
+          <Path d="M3 6h18" {...common} />
+          <Path d="M8 6V4a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 16 4v2" {...common} />
+          <Path d="M19 6l-1 13.5a2 2 0 0 1-2 1.5H8a2 2 0 0 1-2-1.5L5 6" {...common} />
+          <Path d="M10 11v6M14 11v6" {...common} />
         </>
       );
   }

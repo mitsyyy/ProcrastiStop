@@ -65,12 +65,18 @@ export function ConfirmationModal({
             {description}
           </Text>
           <View style={styles.actions}>
-            <SecondaryButton title={cancelLabel} onPress={onCancel} style={styles.actionBtn} />
+            <SecondaryButton
+              title={cancelLabel}
+              onPress={onCancel}
+              compact
+              style={styles.actionBtn}
+            />
             <PrimaryButton
               title={confirmLabel}
               onPress={onConfirm}
               tone={destructive ? 'danger' : 'emerald'}
               fullWidth={false}
+              compact
               style={styles.actionBtn}
             />
           </View>
@@ -92,7 +98,8 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     borderRadius: Radii.xl,
     borderWidth: 1,
-    padding: Spacing.xxl,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.xxl,
     alignItems: 'center',
     gap: Spacing.sm,
   },
