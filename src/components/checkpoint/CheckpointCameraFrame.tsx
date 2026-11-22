@@ -118,6 +118,7 @@ export function CheckpointCameraFrame({
       {/* Live Target & Hover Progress Pill */}
       <View style={styles.bottomHud} pointerEvents="none">
         <View
+          key={`pill-${resolvedOverlayLabel}`}
           style={[
             styles.detectedPill,
             {
@@ -280,8 +281,12 @@ const styles = StyleSheet.create({
     borderRadius: Radii.full,
   },
   detectedText: {
+    fontFamily: FontFamilies.bold,
+    fontSize: 12,
+    lineHeight: 16,
     color: '#ffffff',
-    fontWeight: '700',
+    includeFontPadding: false,
+    flexShrink: 1,
   },
   progressTrack: {
     width: '72%',
