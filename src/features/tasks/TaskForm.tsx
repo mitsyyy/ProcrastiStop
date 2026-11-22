@@ -12,7 +12,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/ui/AppHeader';
 import { AppIcon } from '@/components/ui/AppIcon';
-import { DateTimePicker } from '@/components/ui/DateTimePicker';
+import {
+  combineDateKeyAndTimeToIso,
+  DeadlineSplitPicker,
+  extractDateKeyAndTimeFromIso,
+} from '@/components/ui/DeadlineSplitPicker';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { ScreenBackground } from '@/components/ui/ScreenBackground';
 import { SecondaryButton } from '@/components/ui/SecondaryButton';
@@ -22,21 +26,22 @@ import { formatTime12HourLabel, TimeOfDayPicker } from '@/components/ui/TimeOfDa
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { TASK_CATEGORIES } from '@/constants/categories';
 import { Layout, Radii, Spacing, Typography } from '@/constants/theme';
+import { CHECKPOINT_ITEM_OPTIONS } from '@/features/checkpoints/checkpointAnalyzer';
 import {
   buildBufferedDeadlineIso,
   computeDailyNudgeDates,
   computePreSessionAlertDate,
   computeTargetCompletionIso,
+  computeUpcomingSessionDateFromTime,
   DEFAULT_DAILY_SESSION_TIME,
   formatTimeShort,
-  getSessionDateForDay,
   hasSufficientDeadlineBuffer,
   MIN_DAILY_REMINDERS,
   normalizeDailyReminderCount,
 } from '@/features/tasks/antiProcrastinationScheduler';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useSettingsStore } from '@/store/settingsStore';
-import type { Task, TaskPriority } from '@/types/task';
+import type { CheckpointTargetItem, Task, TaskPriority } from '@/types/task';
 import { formatFullDateTime } from '@/utils/date';
 import {
   validateDailyReminderCount,
@@ -53,6 +58,7 @@ export interface TaskFormValues {
   deadline: string;
   targetCompletionAt: string | null;
   dailySessionStartTime: string;
+  requiredCheckpointItem: CheckpointTargetItem;
   dailyReminderCount: number;
   autoStartEnabled: boolean;
   estimatedMinutes: number | null;
@@ -78,17 +84,25 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
   const insets = useSafeAreaInsets();
   const preferences = useSettingsStore((s) => s.preferences);
 
+  const initialSplit = useMemo(
+    () => extractDateKeyAndTimeFromIso(initialTask?.deadline ?? null),
+    [initialTask?.deadline],
+  );
+
   const [title, setTitle] = useState(initialTask?.title ?? '');
   const [description, setDescription] = useState(initialTask?.description ?? '');
   const [category, setCategory] = useState(initialTask?.category ?? 'Work');
   const [priority, setPriority] = useState<TaskPriority>(initialTask?.priority ?? 'medium');
-  const [deadline, setDeadline] = useState<string | null>(() =>
-    initialTask?.deadline ?? (mode === 'create' ? buildBufferedDeadlineIso(null) : null),
-  );
+  // Intentionally empty by default on create so user deliberately picks both Date & Time
+  const [deadlineDateKey, setDeadlineDateKey] = useState<string | null>(initialSplit.dateKey);
+  const [deadlineTimeHHmm, setDeadlineTimeHHmm] = useState<string | null>(initialSplit.timeHHmm);
   const [dailySessionStartTime, setDailySessionStartTime] = useState<string>(
     initialTask?.dailySessionStartTime ??
       preferences.defaultDailySessionStartTime ??
       DEFAULT_DAILY_SESSION_TIME,
+  );
+  const [requiredCheckpointItem, setRequiredCheckpointItem] = useState<CheckpointTargetItem>(
+    initialTask?.requiredCheckpointItem ?? 'book',
   );
   const [dailyReminderCount, setDailyReminderCount] = useState<number>(() =>
     normalizeDailyReminderCount(
@@ -101,16 +115,42 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
   const [estimatedInput, setEstimatedInput] = useState(
     initialTask?.estimatedMinutes ? String(initialTask.estimatedMinutes) : '45',
   );
+  const [referenceNowMs] = useState<number>(() => Date.now());
   const [submittedOnce, setSubmittedOnce] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const deadline = useMemo(
+    () => combineDateKeyAndTimeToIso(deadlineDateKey, deadlineTimeHHmm),
+    [deadlineDateKey, deadlineTimeHHmm],
+  );
+
+  const parsedEstimatedMinutes = useMemo(() => {
+    const trimmed = estimatedInput.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [estimatedInput]);
+
+  const upcomingSessionDate = useMemo(
+    () => computeUpcomingSessionDateFromTime(dailySessionStartTime, new Date(referenceNowMs)),
+    [dailySessionStartTime, referenceNowMs],
+  );
+
+
   const titleCheck = validateTaskTitle(title);
-  const deadlineCheck = validateTaskDeadline(deadline);
-  const reminderCheck = validateDailyReminderCount(dailyReminderCount);
   const estimateCheck = validateEstimatedMinutes(estimatedInput);
+  const reminderCheck = validateDailyReminderCount(dailyReminderCount);
+  const deadlineCheck = validateTaskDeadline(deadline, {
+    nowMs: referenceNowMs,
+    estimatedMinutes: parsedEstimatedMinutes,
+    firstSessionDate: upcomingSessionDate,
+  });
 
   const titleError = submittedOnce && !titleCheck.valid ? titleCheck.error : undefined;
-  const deadlineError = submittedOnce && !deadlineCheck.valid ? deadlineCheck.error : undefined;
+  const dateFieldError = submittedOnce && !deadlineDateKey ? 'Select a deadline date.' : undefined;
+  const timeFieldError = submittedOnce && !deadlineTimeHHmm ? 'Select a deadline time.' : undefined;
+  const combinedDeadlineError =
+    deadline && !deadlineCheck.valid ? deadlineCheck.error : undefined;
   const reminderError = submittedOnce && !reminderCheck.valid ? reminderCheck.error : undefined;
   const estimateError = !estimateCheck.valid ? estimateCheck.error : undefined;
 
@@ -118,32 +158,70 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
     () => computeTargetCompletionIso(deadline),
     [deadline],
   );
-  const hasBuffer = useMemo(() => hasSufficientDeadlineBuffer(deadline), [deadline]);
+  const hasBuffer = useMemo(
+    () => hasSufficientDeadlineBuffer(deadline, referenceNowMs),
+    [deadline, referenceNowMs],
+  );
 
   const schedulePreview = useMemo(() => {
-    const sampleSession = getSessionDateForDay(new Date(), dailySessionStartTime);
-    const nudgeDates = computeDailyNudgeDates(sampleSession, dailyReminderCount);
+    const refNow = new Date(referenceNowMs);
+    const nudgeDates = computeDailyNudgeDates(upcomingSessionDate, dailyReminderCount, refNow);
     const preAlert = computePreSessionAlertDate(
-      sampleSession,
+      upcomingSessionDate,
       preferences.remindBeforeSessionMinutes,
     );
     return {
-      nudgesText: nudgeDates.map(formatTimeShort).join(' · '),
-      preAlertText: formatTimeShort(preAlert),
+      nudgesText:
+        nudgeDates.length > 0
+          ? nudgeDates.map(formatTimeShort).join(' · ')
+          : 'Session starting soon (hard cutoff active)',
+      preAlertText:
+        preAlert.getTime() > referenceNowMs
+          ? formatTimeShort(preAlert)
+          : 'Window < lead time',
       sessionText: formatTime12HourLabel(dailySessionStartTime),
     };
-  }, [dailySessionStartTime, dailyReminderCount, preferences.remindBeforeSessionMinutes]);
+  }, [
+    upcomingSessionDate,
+    dailyReminderCount,
+    dailySessionStartTime,
+    preferences.remindBeforeSessionMinutes,
+    referenceNowMs,
+  ]);
 
   const categoryOptions = TASK_CATEGORIES.map((cat) => ({
     label: cat,
     value: cat,
   }));
 
+  const checkpointItemOptions = CHECKPOINT_ITEM_OPTIONS.map((opt) => ({
+    label: opt.label,
+    value: opt.key,
+    subtitle: opt.promptHint,
+  }));
+
+  const handleShiftDeadlineBuffer = () => {
+    const shifted = buildBufferedDeadlineIso(deadline);
+    const split = extractDateKeyAndTimeFromIso(shifted);
+    setDeadlineDateKey(split.dateKey);
+    setDeadlineTimeHHmm(split.timeHHmm);
+  };
+
   const handleSave = async () => {
     setSubmittedOnce(true);
+    const liveNow = new Date();
+    const liveSessionDate = computeUpcomingSessionDateFromTime(dailySessionStartTime, liveNow);
+    const liveDeadlineCheck = validateTaskDeadline(deadline, {
+      nowMs: liveNow.getTime(),
+      estimatedMinutes: parsedEstimatedMinutes,
+      firstSessionDate: liveSessionDate,
+    });
+
     if (
       !titleCheck.valid ||
-      !deadlineCheck.valid ||
+      !deadlineDateKey ||
+      !deadlineTimeHHmm ||
+      !liveDeadlineCheck.valid ||
       !reminderCheck.valid ||
       !estimateCheck.valid ||
       !deadline
@@ -153,7 +231,6 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
 
     setSaving(true);
     try {
-      const parsedMinutes = estimatedInput.trim() ? Number(estimatedInput.trim()) : null;
       await onSubmit({
         title: title.trim(),
         description: description.trim(),
@@ -162,9 +239,10 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
         deadline,
         targetCompletionAt: computeTargetCompletionIso(deadline),
         dailySessionStartTime,
+        requiredCheckpointItem,
         dailyReminderCount: normalizeDailyReminderCount(dailyReminderCount),
         autoStartEnabled,
-        estimatedMinutes: parsedMinutes,
+        estimatedMinutes: parsedEstimatedMinutes,
       });
     } finally {
       setSaving(false);
@@ -194,8 +272,8 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
               title={mode === 'create' ? 'Create task' : 'Edit task'}
               subtitle={
                 mode === 'create'
-                  ? 'Set a firm deadline with a 24h anti-cramming buffer and daily nudges.'
-                  : 'Adjust deadline buffer, daily focus time, or reminder cadence.'
+                  ? 'Pick a firm future deadline, daily focus start, and required scan item.'
+                  : 'Adjust deadline, focus start time, scan item, or reminder cadence.'
               }
               onBack={onCancel}
             />
@@ -219,17 +297,19 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                 multiline
               />
 
-              {/* Mandatory Deadline + 24-Hour Anti-Procrastination Buffer */}
+              {/* Dedicated Separated Deadline Date & Deadline Time Inputs */}
               <View style={styles.fieldGroup}>
-                <DateTimePicker
-                  label="Actual deadline (required)"
-                  value={deadline}
-                  onChange={setDeadline}
-                  required
-                  error={deadlineError}
+                <DeadlineSplitPicker
+                  dateKey={deadlineDateKey}
+                  timeHHmm={deadlineTimeHHmm}
+                  onChangeDate={setDeadlineDateKey}
+                  onChangeTime={setDeadlineTimeHHmm}
+                  dateError={dateFieldError}
+                  timeError={timeFieldError}
+                  combinedError={combinedDeadlineError}
                 />
 
-                {deadline ? (
+                {deadline && deadlineCheck.valid ? (
                   <View
                     style={[
                       styles.bufferCard,
@@ -268,12 +348,12 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                     <Text style={[Typography.small, { color: palette.textMuted }]}>
                       {hasBuffer
                         ? 'ProcrastiStop aims to finish this task at least 1 full day before your deadline so you never rush at the last minute.'
-                        : 'This leaves less than a full day of buffer. Shift your deadline by +24h to keep healthy lead time, or start immediately.'}
+                        : 'This leaves less than a full day of buffer. Shift your deadline by +24h to keep healthy lead time, or start right away.'}
                     </Text>
 
                     {!hasBuffer ? (
                       <Pressable
-                        onPress={() => setDeadline(buildBufferedDeadlineIso(deadline))}
+                        onPress={handleShiftDeadlineBuffer}
                         style={[
                           styles.bufferFixBtn,
                           { backgroundColor: palette.surfaceElevated, borderColor: palette.warning },
@@ -294,21 +374,24 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                 ) : null}
               </View>
 
-              {/* Daily Focus Session & Free-Will Nudges */}
+              {/* Daily Focus Session, Required AI Scan Item & Proportional Nudges */}
               <View
                 style={[
                   styles.scheduleCard,
-                  { backgroundColor: palette.surfaceGlass, borderColor: palette.border },
+                  {
+                    backgroundColor: palette.surfaceGlass,
+                    borderColor: palette.border,
+                  },
                 ]}
               >
                 <View style={styles.scheduleTitleRow}>
                   <AppIcon name="bell" size={18} color={palette.accentMint} />
                   <View style={styles.flexOne}>
                     <Text style={[Typography.label, { color: palette.text }]}>
-                      Daily Focus & Escalation Plan
+                      Daily Focus, AI Gate & Nudges
                     </Text>
                     <Text style={[Typography.small, { color: palette.textMuted }]}>
-                      Free-will nudges first, automatic session launch if ignored.
+                      Alarm opens hands-free AI Camera Gate at start time; hover item to begin timer.
                     </Text>
                   </View>
                 </View>
@@ -317,7 +400,16 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                   label="Daily focus session start time"
                   value={dailySessionStartTime}
                   onChange={setDailySessionStartTime}
-                  helperText="Exact time your daily focus session begins until this task is done."
+                  helperText="Exact time your daily focus alarm triggers until this task is done."
+                />
+
+
+                <SelectField
+                  label="Required item to scan before session"
+                  value={requiredCheckpointItem}
+                  options={checkpointItemOptions}
+                  onChange={setRequiredCheckpointItem}
+                  icon="camera"
                 />
 
                 <View style={styles.fieldGroup}>
@@ -325,10 +417,10 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                     <Text
                       style={[Typography.caption, styles.label, { color: palette.textSecondary }]}
                     >
-                      Free-will reminders per day
+                      Pre-session reminders
                     </Text>
                     <Text style={[Typography.small, { color: palette.accentMint, fontWeight: '700' }]}>
-                      Min {MIN_DAILY_REMINDERS}/day
+                      Min {MIN_DAILY_REMINDERS}/session
                     </Text>
                   </View>
 
@@ -361,7 +453,7 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                               },
                             ]}
                           >
-                            {count}× / day
+                            {count}×
                           </Text>
                         </Pressable>
                       );
@@ -381,11 +473,11 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                     ]}
                   >
                     <Text style={[Typography.small, { color: palette.textSecondary }]}>
-                      Free-will nudges: {schedulePreview.nudgesText}
+                      Proportional nudges: {schedulePreview.nudgesText}
                     </Text>
                     <Text style={[Typography.small, { color: palette.accentMint }]}>
                       {preferences.remindBeforeSessionMinutes}-min warning: {schedulePreview.preAlertText}{' '}
-                      · Session start: {schedulePreview.sessionText}
+                      · Cutoff & alarm: {schedulePreview.sessionText}
                     </Text>
                   </View>
                 </View>
@@ -393,11 +485,10 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
                 <View style={styles.autoStartRow}>
                   <View style={styles.flexOne}>
                     <Text style={[Typography.bodySemiBold, { color: palette.text }]}>
-                      Auto-launch focus at {schedulePreview.sessionText}
+                      Auto-launch AI Gate alarm at {schedulePreview.sessionText}
                     </Text>
                     <Text style={[Typography.small, { color: palette.textMuted }]}>
-                      If you haven&apos;t started after all {dailyReminderCount} nudges, the timer
-                      starts automatically.
+                      Rings alarm over apps/lock screen until you scan your required item.
                     </Text>
                   </View>
                   <ToggleSwitch value={autoStartEnabled} onValueChange={setAutoStartEnabled} />
@@ -485,7 +576,6 @@ export function TaskForm({ mode, initialTask, onSubmit, onCancel }: TaskFormProp
               title={mode === 'create' ? 'Save task' : 'Update task'}
               onPress={handleSave}
               loading={saving}
-              disabled={!title.trim()}
               fullWidth={false}
               style={styles.saveBtn}
             />

@@ -54,14 +54,55 @@ export function validateFocusDuration(minutes: number): ValidationResult {
   return { valid: true };
 }
 
-export function validateTaskDeadline(deadlineIso: string | null): ValidationResult {
+export interface TaskDeadlineValidationOptions {
+  nowMs?: number;
+  estimatedMinutes?: number | null;
+  firstSessionDate?: Date | null;
+}
+
+export function validateTaskDeadline(
+  deadlineIso: string | null,
+  options?: TaskDeadlineValidationOptions,
+): ValidationResult {
   if (!deadlineIso) {
-    return { valid: false, error: 'Every task requires a deadline so we can protect a 24h buffer.' };
+    return { valid: false, error: 'Please select an actual deadline date and time.' };
   }
   const ts = new Date(deadlineIso).getTime();
   if (Number.isNaN(ts)) {
     return { valid: false, error: 'Select a valid deadline date and time.' };
   }
+
+  const nowMs = options?.nowMs ?? Date.now();
+  if (ts <= nowMs) {
+    return {
+      valid: false,
+      error: 'Deadline cannot be in the past. Pick a future date and time.',
+    };
+  }
+
+  const estMins = options?.estimatedMinutes;
+  if (typeof estMins === 'number' && Number.isFinite(estMins) && estMins > 0) {
+    const minFinishMs = nowMs + estMins * 60_000;
+    if (ts < minFinishMs) {
+      return {
+        valid: false,
+        error: `Deadline must leave at least ${estMins} min from now to finish this task.`,
+      };
+    }
+  }
+
+  const firstSession = options?.firstSessionDate;
+  if (firstSession && !Number.isNaN(firstSession.getTime()) && ts < firstSession.getTime()) {
+    const timeLabel = firstSession.toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return {
+      valid: false,
+      error: `Deadline must be on or after your scheduled focus start (${timeLabel}).`,
+    };
+  }
+
   return { valid: true };
 }
 
