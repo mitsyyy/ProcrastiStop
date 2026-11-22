@@ -1540,20 +1540,7 @@ module.exports = function withFocusAlarm(config) {
       ].join('\n'),
     });
 
-    const withGuavaFix = mergeContents({
-      src: withDeps.contents,
-      tag: 'procrastistop-camerax-listenablefuture',
-      comment: '//',
-      anchor: /dependencies\s*\{/,
-      offset: 0,
-      newSrc: [
-        'configurations.configureEach {',
-        '    resolutionStrategy.force("com.google.guava:listenablefuture:1.0")',
-        '}',
-      ].join('\n'),
-    });
-
-    modConfig.modResults.contents = withGuavaFix.contents;
+    modConfig.modResults.contents = withDeps.contents;
     return modConfig;
   });
 
